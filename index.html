@@ -1,0 +1,825 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#1E4D45">
+<title>Library Catalog · Nisha's Library</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Literata:opsz,wght@7..72,500;7..72,700&family=Atkinson+Hyperlegible:wght@400;700&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
+<style>
+:root{
+  --paper:#F5F6F2; --card:#FFFFFF; --ink:#1C2826; --muted:#5E6B68; --line:#D5DAD6;
+  --green:#1E4D45; --green-ink:#FFFFFF; --oak:#7A5230; --brass:#B08A3E; --rule:#B8433A;
+  --ok:#2E7D4F; --danger:#A33A32; --field:#FFFFFF;
+  --serif:"Literata", Georgia, "Times New Roman", serif;
+  --sans:"Atkinson Hyperlegible", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  box-sizing:border-box;
+  padding-top:env(safe-area-inset-top,0px);
+  padding-bottom:env(safe-area-inset-bottom,0px);
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --paper:#141A19; --card:#1C2422; --ink:#E8ECEA; --muted:#9AA6A3; --line:#2F3A38;
+    --green:#4FA393; --green-ink:#0E1513; --oak:#C08A5A; --brass:#D4AE5E; --rule:#E06A5F;
+    --ok:#5FBF86; --danger:#E0726A; --field:#161D1C;
+  }
+}
+*,*::before,*::after{box-sizing:inherit}
+html,body{height:100%;margin:0}
+body{background:var(--paper);color:var(--ink);font-family:var(--sans);font-size:17px;line-height:1.5;-webkit-tap-highlight-color:transparent}
+button,input,select{font:inherit;color:inherit}
+:focus-visible{outline:3px solid var(--brass);outline-offset:2px}
+@media (prefers-reduced-motion: reduce){*{animation:none!important;transition:none!important}}
+
+/* Header */
+.bar{position:sticky;top:env(safe-area-inset-top,0px);z-index:5;background:var(--paper);border-bottom:1px solid var(--line)}
+.bar-in{max-width:760px;margin:0 auto;display:flex;align-items:center;gap:.5rem;padding:.7rem 1rem}
+.bar h1{font-family:var(--serif);font-size:1.15rem;font-weight:700;margin:0;flex:1;letter-spacing:-.01em}
+.iconbtn{background:none;border:1px solid var(--line);border-radius:8px;padding:.35rem .7rem;cursor:pointer;min-height:40px}
+.who{font-size:.85rem;color:var(--muted)}
+
+main{max-width:760px;margin:0 auto;padding:1.25rem 1rem 3rem}
+h2{font-family:var(--serif);font-weight:700;font-size:1.6rem;line-height:1.2;margin:.2rem 0 1rem;letter-spacing:-.015em}
+h3{font-family:var(--serif);font-weight:500;font-size:1.15rem;margin:1.5rem 0 .5rem}
+p.lead{color:var(--muted);margin:0 0 1.5rem;max-width:60ch}
+
+/* Drawer fronts (home) */
+.drawers{display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin:1.5rem 0}
+@media (max-width:420px){.drawers{grid-template-columns:1fr}}
+.drawer{position:relative;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:.9rem;
+  min-height:200px;border:none;border-radius:6px;cursor:pointer;color:#FBF6EC;
+  background:
+    repeating-linear-gradient(92deg, rgba(0,0,0,.05) 0 2px, transparent 2px 9px),
+    linear-gradient(180deg,#8B5E37,#6E4626);
+  box-shadow:inset 0 0 0 6px #5D3A1F, inset 0 0 0 8px #9A6B42, 0 3px 0 #4A2D17}
+.drawer:active{transform:translateY(2px);box-shadow:inset 0 0 0 6px #5D3A1F, inset 0 0 0 8px #9A6B42, 0 1px 0 #4A2D17}
+.label-holder{background:#F3EBD8;color:#2A1D10;border:3px solid var(--brass);border-radius:3px;padding:.45rem 1.4rem;
+  font-family:var(--serif);font-weight:700;font-size:1.5rem;min-width:9rem;text-align:center}
+.pull{width:64px;height:14px;border-radius:0 0 30px 30px;background:linear-gradient(#D9B866,#9C7A33);box-shadow:0 2px 0 #5D3A1F}
+.drawer small{font-size:.9rem;opacity:.9}
+
+.stat{color:var(--muted);font-size:.95rem}
+.linkcard{display:flex;justify-content:space-between;align-items:center;width:100%;text-align:left;background:var(--card);
+  border:1px solid var(--line);border-radius:6px;padding:1rem;cursor:pointer;margin-top:.5rem}
+
+/* Forms */
+.field{margin-bottom:1rem}
+.field label,.legend{display:block;font-weight:700;font-size:.95rem;margin-bottom:.3rem}
+.opt{font-weight:400;color:var(--muted)}
+input[type=text],input[type=number],input[type=password],input[type=search],select{
+  width:100%;min-height:48px;padding:.6rem .75rem;background:var(--field);border:1px solid var(--line);border-radius:6px}
+input:focus,select:focus{border-color:var(--green)}
+.row2{display:grid;grid-template-columns:1fr 1fr;gap:.75rem}
+@media (max-width:480px){.row2{grid-template-columns:1fr}}
+.seg{display:flex;flex-wrap:wrap;gap:.4rem}
+.seg input{position:absolute;opacity:0;pointer-events:none}
+.seg label{margin:0;font-weight:400;border:1px solid var(--line);border-radius:999px;padding:.45rem 1rem;cursor:pointer;background:var(--field);min-height:44px;display:flex;align-items:center}
+.seg input:checked+label{background:var(--green);color:var(--green-ink);border-color:var(--green)}
+.seg input:focus-visible+label{outline:3px solid var(--brass);outline-offset:2px}
+.hint{font-size:.85rem;color:var(--muted);margin-top:.25rem}
+.err{color:var(--danger);font-size:.9rem;margin-top:.25rem}
+
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:.4rem;min-height:48px;padding:.6rem 1.2rem;border-radius:6px;
+  border:1px solid var(--green);background:var(--green);color:var(--green-ink);font-weight:700;cursor:pointer}
+.btn.ghost{background:transparent;color:var(--ink);border-color:var(--line)}
+.btn.danger{background:transparent;color:var(--danger);border-color:var(--danger)}
+.btn.small{min-height:38px;padding:.3rem .8rem;font-weight:400;font-size:.92rem}
+.btn[disabled]{opacity:.6;cursor:progress}
+.actions{display:flex;gap:.6rem;flex-wrap:wrap;margin-top:1.25rem}
+.actions .btn{flex:1 1 auto}
+
+.photo{display:flex;gap:1rem;align-items:center}
+.photo img{width:84px;height:112px;object-fit:cover;border-radius:4px;border:1px solid var(--line)}
+
+/* Index card (the record) */
+.icard{display:flex;gap:.9rem;width:100%;text-align:left;background:var(--card);border:1px solid var(--line);border-radius:4px;
+  padding:.85rem .9rem;cursor:pointer;margin-bottom:.6rem;position:relative}
+.icard::before{content:"";position:absolute;left:0;right:0;top:2.55rem;border-top:1px solid var(--rule);opacity:.55}
+.icard .thumb{width:52px;height:70px;flex:none;border-radius:3px;background:var(--paper);border:1px solid var(--line);object-fit:cover}
+.icard .body{flex:1;min-width:0}
+.icard .t{font-family:var(--serif);font-weight:700;font-size:1.05rem;line-height:1.3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;padding-right:5.5rem;min-height:1.6rem}
+.icard .a{color:var(--muted);font-size:.92rem;margin-top:.55rem}
+.icard .m{font-size:.85rem;color:var(--muted)}
+.callno{position:absolute;top:.8rem;right:.9rem;font-size:.75rem;color:var(--oak);max-width:5.5rem;text-align:right;line-height:1.2;overflow:hidden;text-overflow:ellipsis}
+.pill{display:inline-block;font-size:.78rem;border:1px solid var(--line);border-radius:999px;padding:.05rem .55rem;margin-right:.3rem}
+.pill.Read{border-color:var(--ok);color:var(--ok)} .pill.Reading{border-color:var(--brass);color:var(--brass)}
+
+/* Detail */
+.sheet{background:var(--card);border:1px solid var(--line);border-radius:4px;padding:1.2rem;position:relative}
+.sheet .hero{display:flex;gap:1.1rem;align-items:flex-start;padding-bottom:.9rem;border-bottom:1px solid var(--rule);margin-bottom:.9rem}
+.sheet .hero img{width:110px;border-radius:4px;border:1px solid var(--line)}
+.sheet h2{margin:0 0 .3rem}
+dl.kv{display:grid;grid-template-columns:8.5rem 1fr;gap:.45rem .75rem;margin:0}
+dl.kv dt{color:var(--muted)} dl.kv dd{margin:0;word-break:break-word}
+@media (max-width:420px){dl.kv{grid-template-columns:1fr} dl.kv dd{margin-bottom:.4rem}}
+
+/* Find */
+.filters{background:var(--card);border:1px solid var(--line);border-radius:6px;padding:.4rem .9rem;margin:.75rem 0 1rem}
+.filters summary{cursor:pointer;padding:.5rem 0;font-weight:700}
+.filters .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:.6rem;padding:.4rem 0 .8rem}
+.empty{text-align:center;color:var(--muted);padding:2.5rem 1rem;border:1px dashed var(--line);border-radius:6px}
+
+/* Setup */
+.tabs{display:flex;gap:.3rem;border-bottom:1px solid var(--line);margin-bottom:1rem;overflow-x:auto}
+.tabs button{background:none;border:none;border-bottom:3px solid transparent;padding:.6rem .9rem;cursor:pointer;font-weight:700;color:var(--muted);min-height:44px}
+.tabs button[aria-selected=true]{color:var(--ink);border-color:var(--green)}
+.addrow{display:flex;gap:.5rem;margin-bottom:1rem}
+.addrow input,.addrow select{flex:1}
+.list{list-style:none;padding:0;margin:0;border:1px solid var(--line);border-radius:6px;background:var(--card)}
+.list li{display:flex;align-items:center;gap:.5rem;padding:.6rem .8rem;border-top:1px solid var(--line);flex-wrap:wrap}
+.list li:first-child{border-top:none}
+.list .name{flex:1;min-width:8rem}
+.list .group{background:var(--paper);font-weight:700;font-size:.9rem;color:var(--muted)}
+.badge{font-size:.78rem;background:var(--green);color:var(--green-ink);border-radius:999px;padding:.1rem .6rem}
+
+/* Login */
+.login{max-width:380px;margin:9vh auto 0}
+.login .mark{width:58px;height:44px;margin-bottom:1rem;border-radius:4px;background:linear-gradient(180deg,#8B5E37,#6E4626);
+  box-shadow:inset 0 0 0 3px #5D3A1F;display:flex;align-items:center;justify-content:center}
+.login .mark span{display:block;width:30px;height:12px;background:#F3EBD8;border:2px solid var(--brass)}
+
+.isbnrow{display:flex;gap:.5rem;flex-wrap:wrap}
+.isbnrow input{flex:1 1 10rem}
+.scanner{position:fixed;inset:0;z-index:30;background:#000;display:flex;flex-direction:column;
+  padding:env(safe-area-inset-top,0px) 0 env(safe-area-inset-bottom,0px)}
+.scanner[hidden]{display:none}
+.scanner video{flex:1;width:100%;min-height:0;object-fit:cover}
+.scanner .aim{position:absolute;left:10%;right:10%;top:50%;height:28%;transform:translateY(-50%);
+  border:3px solid var(--brass);border-radius:8px;box-shadow:0 0 0 100vmax rgba(0,0,0,.45);pointer-events:none}
+.scanner .aim::after{content:"";position:absolute;left:6%;right:6%;top:50%;border-top:2px solid var(--rule)}
+.scanner .sbar{display:flex;align-items:center;gap:.75rem;padding:.9rem 1rem;color:#fff;background:#000;position:relative;z-index:1}
+.scanner .sbar p{flex:1;margin:0;font-size:.95rem}
+.scanner .sbar .btn{background:#fff;color:#000;border-color:#fff}
+#toast{position:fixed;left:50%;bottom:calc(1.2rem + env(safe-area-inset-bottom,0px));transform:translateX(-50%) translateY(150%);
+  background:var(--ink);color:var(--paper);padding:.7rem 1.1rem;border-radius:6px;max-width:90vw;transition:transform .25s;z-index:20}
+#toast.show{transform:translateX(-50%) translateY(0)}
+#toast.bad{background:var(--danger);color:#fff}
+.spin{display:inline-block;width:1em;height:1em;border:2px solid currentColor;border-right-color:transparent;border-radius:50%;animation:sp .7s linear infinite}
+@keyframes sp{to{transform:rotate(360deg)}}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
+</style>
+</head>
+<body>
+<header class="bar" id="bar" hidden>
+  <div class="bar-in">
+    <button class="iconbtn" id="backBtn" aria-label="Back" hidden>&larr;</button>
+    <h1 id="barTitle">Library Catalog</h1>
+    <span class="who" id="who"></span>
+    <button class="iconbtn" id="signOutBtn">Sign out</button>
+  </div>
+</header>
+<main id="app" aria-live="polite"></main>
+<div id="toast" role="status"></div>
+<div class="scanner" id="scanner" hidden role="dialog" aria-label="Scan barcode">
+  <video id="scanVideo" playsinline muted autoplay></video>
+  <div class="aim" aria-hidden="true"></div>
+  <div class="sbar"><p id="scanMsg">Point the camera at the barcode on the back cover.</p>
+    <button class="btn small" id="scanClose" type="button">Close</button></div>
+</div>
+
+<script>
+/* =====================================================================
+   CONFIG — paste your own values from Supabase > Project Settings > API
+   (the anon / publishable key is designed to live in the app;
+    NEVER put the service_role / secret key here)
+   ===================================================================== */
+const SUPABASE_URL      = "yvmsxokialqwmhqxzqsr.supabase.co";
+const SUPABASE_ANON_KEY = "sb_publishable_WX8WGKGoOUeb9M-gqaWgpQ_7oPJDDjB";
+const USERNAME_DOMAIN   = "catalog.local";   // usernames become username@catalog.local
+const IMAGE_BUCKET      = "book-images";
+/* ===================================================================== */
+
+const READ_STATUSES = ["Unread", "Reading", "Read"];
+const BOOK_TYPES    = ["Hardcover", "Paperback", "Others"];
+// Edit this list to add languages; no database change needed
+const LANGUAGES     = ["English", "Tamil", "Hindi", "Malayalam", "Telugu", "Kannada", "French", "Other"];
+
+const app = document.getElementById("app");
+const state = { user: null, profile: null, rooms: [], areas: [], owners: [], findQuery: { term: "" } };
+let sb = null;
+
+/* ---------- helpers ---------- */
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const byId = (list, id) => list.find(x => x.id === id);
+const uuid = () => (crypto.randomUUID ? crypto.randomUUID() : "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, c => {
+  const r = Math.random() * 16 | 0; return (c === "x" ? r : (r & 3 | 8)).toString(16); }));
+
+let toastTimer;
+function toast(msg, bad = false) {
+  const t = document.getElementById("toast");
+  t.textContent = msg; t.className = "show" + (bad ? " bad" : "");
+  clearTimeout(toastTimer); toastTimer = setTimeout(() => (t.className = ""), 3200);
+}
+function friendly(err) {
+  if (!err) return "Something went wrong.";
+  if (err.code === "23503") return "This item is still used by catalog entries. Move or delete those first.";
+  if (err.code === "23505") return "That name already exists.";
+  if (err.code === "42501" || /row-level security/i.test(err.message || "")) return "Your account doesn't have permission for this.";
+  if (/Invalid login/i.test(err.message || "")) return "Username or password is incorrect.";
+  if (/Failed to fetch|NetworkError/i.test(err.message || "")) return "Can't reach the server. Check your internet connection.";
+  return err.message || String(err);
+}
+async function busy(btn, fn) {
+  const old = btn.innerHTML; btn.disabled = true; btn.innerHTML = '<span class="spin" aria-hidden="true"></span> Working…';
+  try { return await fn(); } finally { btn.disabled = false; btn.innerHTML = old; }
+}
+function setBar({ title = "Library Catalog", back = false } = {}) {
+  document.getElementById("bar").hidden = false;
+  document.getElementById("barTitle").textContent = title;
+  document.getElementById("backBtn").hidden = !back;
+  document.getElementById("who").textContent = state.profile?.username || "";
+}
+function toEmail(u) { u = u.trim().toLowerCase(); return u.includes("@") ? u : `${u}@${USERNAME_DOMAIN}`; }
+const isAdmin = () => !!state.profile?.is_admin;
+
+async function signedUrls(paths) {
+  const clean = [...new Set(paths.filter(Boolean))];
+  if (!clean.length) return {};
+  const { data, error } = await sb.storage.from(IMAGE_BUCKET).createSignedUrls(clean, 3600);
+  if (error) return {};
+  const map = {}; data.forEach(d => { if (d.signedUrl) map[d.path] = d.signedUrl; }); return map;
+}
+
+/* Shrink photos before upload to save free-tier storage (max 1200px JPEG) */
+async function compressImage(file, max = 1200, quality = 0.8) {
+  const url = URL.createObjectURL(file);
+  try {
+    const img = await new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = rej; i.src = url; });
+    const scale = Math.min(1, max / Math.max(img.naturalWidth, img.naturalHeight));
+    const c = document.createElement("canvas");
+    c.width = Math.round(img.naturalWidth * scale); c.height = Math.round(img.naturalHeight * scale);
+    c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
+    return await new Promise(res => c.toBlob(res, "image/jpeg", quality));
+  } catch { return file; } finally { URL.revokeObjectURL(url); }
+}
+
+async function loadLookups() {
+  const [r, a, o] = await Promise.all([
+    sb.from("rooms").select("*").order("name"),
+    sb.from("areas").select("*").order("name"),
+    sb.from("owners").select("*").order("name"),
+  ]);
+  for (const x of [r, a, o]) if (x.error) throw x.error;
+  state.rooms = r.data; state.areas = a.data; state.owners = o.data;
+}
+
+/* ---------- routing (hash based so the phone's back button works) ---------- */
+function go(hash) { if (location.hash === "#" + hash) route(); else location.hash = hash; }
+window.addEventListener("hashchange", route);
+document.getElementById("backBtn").onclick = () => history.length > 1 ? history.back() : go("home");
+document.getElementById("signOutBtn").onclick = async () => { await sb.auth.signOut(); showLogin(); };
+
+async function route() {
+  if (!state.user) return showLogin();
+  const [view, id] = (location.hash.slice(1) || "home").split("/");
+  window.scrollTo(0, 0);
+  try {
+    if (view === "add") return renderForm();
+    if (view === "edit") return renderForm(id);
+    if (view === "find") return renderFind();
+    if (view === "book") return renderDetail(id);
+    if (view === "setup") return isAdmin() ? renderSetup(id || "rooms") : go("home");
+    return renderHome();
+  } catch (e) { toast(friendly(e), true); }
+}
+
+/* ---------- login ---------- */
+function showLogin() {
+  state.user = null; state.profile = null;
+  document.getElementById("bar").hidden = true;
+  app.innerHTML = `
+    <section class="login">
+      <div class="mark" aria-hidden="true"><span></span></div>
+      <h2>Library Catalog</h2>
+      <p class="lead">Sign in to add or find manuals, guides and files across Advantage Foods.</p>
+      <form id="loginForm" novalidate>
+        <div class="field"><label for="u">Username</label>
+          <input id="u" type="text" autocomplete="username" autocapitalize="none" spellcheck="false" required></div>
+        <div class="field"><label for="p">Password</label>
+          <input id="p" type="password" autocomplete="current-password" required></div>
+        <div class="err" id="loginErr" role="alert"></div>
+        <div class="actions"><button class="btn" type="submit">Sign in</button></div>
+        <p class="hint">Need an account? Ask your admin to create one.</p>
+      </form>
+    </section>`;
+  const f = document.getElementById("loginForm");
+  f.onsubmit = async e => {
+    e.preventDefault();
+    const u = f.u.value, p = f.p.value, errEl = document.getElementById("loginErr");
+    errEl.textContent = "";
+    if (!u.trim() || !p) { errEl.textContent = "Enter your username and password."; return; }
+    await busy(f.querySelector("button"), async () => {
+      const { data, error } = await sb.auth.signInWithPassword({ email: toEmail(u), password: p });
+      if (error) { errEl.textContent = friendly(error); return; }
+      await afterLogin(data.user);
+    });
+  };
+}
+
+async function afterLogin(user) {
+  state.user = user;
+  const { data } = await sb.from("profiles").select("*").eq("id", user.id).maybeSingle();
+  state.profile = data || { username: (user.email || "").split("@")[0], is_admin: false };
+  await loadLookups();
+  if (!location.hash || location.hash === "#") location.hash = "home"; else route();
+}
+
+/* ---------- home ---------- */
+async function renderHome() {
+  setBar();
+  app.innerHTML = `
+    <h2>What do you need?</h2>
+    <p class="stat" id="count">&nbsp;</p>
+    <div class="drawers">
+      <button class="drawer" id="goAdd"><span class="label-holder">Add</span><span class="pull" aria-hidden="true"></span><small>Catalog a new item</small></button>
+      <button class="drawer" id="goFind"><span class="label-holder">Find</span><span class="pull" aria-hidden="true"></span><small>Search the shelves</small></button>
+    </div>
+    ${isAdmin() ? `<button class="linkcard" id="goSetup"><span><strong>Setup</strong><br><span class="stat">Rooms, areas and owners</span></span><span aria-hidden="true">&rsaquo;</span></button>` : ""}`;
+  document.getElementById("goAdd").onclick = () => go("add");
+  document.getElementById("goFind").onclick = () => go("find");
+  document.getElementById("goSetup")?.addEventListener("click", () => go("setup"));
+  if (!state.owners.length && isAdmin()) toast("Start in Setup: add at least one owner.");
+  const { count } = await sb.from("books").select("id", { count: "exact", head: true });
+  const el = document.getElementById("count");
+  if (el && count != null) el.textContent = count === 1 ? "1 item catalogued" : `${count.toLocaleString("en-IN")} items catalogued`;
+}
+
+/* ---------- add / edit ---------- */
+const opts = (list, sel, blank) => (blank ? `<option value="">${esc(blank)}</option>` : "") +
+  list.map(x => `<option value="${esc(x.id)}" ${x.id === sel ? "selected" : ""}>${esc(x.name)}</option>`).join("");
+const seg = (name, values, sel) => `<div class="seg" role="radiogroup">${values.map((v, i) =>
+  `<input type="radio" id="${name}${i}" name="${name}" value="${v}" ${v === sel ? "checked" : ""}><label for="${name}${i}">${v}</label>`).join("")}</div>`;
+
+async function renderForm(editId) {
+  let book = { read_status: "Unread", book_type: "Paperback", language: "English", owner_id: state.owners.find(o => o.is_default)?.id };
+  let currentImg = null;
+  if (editId) {
+    const { data, error } = await sb.from("books").select("*").eq("id", editId).single();
+    if (error) throw error;
+    book = data;
+    if (book.image_path) currentImg = (await signedUrls([book.image_path]))[book.image_path];
+  }
+  setBar({ title: editId ? "Edit item" : "Add item", back: true });
+  if (!state.owners.length) {
+    app.innerHTML = `<div class="empty">No owners set up yet. ${isAdmin() ? `<br><br><button class="btn" onclick="go('setup/owners')">Add owners in Setup</button>` : "Ask your admin to add owners in Setup."}</div>`;
+    return;
+  }
+  const yr = new Date().getFullYear();
+  app.innerHTML = `
+    <h2>${editId ? "Edit item" : "Add to catalog"}</h2>
+    <form id="bookForm" novalidate>
+      <div class="field"><label for="owner">Owner</label><select id="owner" required>${opts(state.owners, book.owner_id, "Choose owner")}</select></div>
+      <div class="field"><label for="isbn">ISBN <span class="opt">(optional)</span></label>
+        <div class="isbnrow">
+          <input id="isbn" type="text" inputmode="numeric" autocomplete="off" value="${esc(book.isbn)}">
+          <button class="btn ghost" type="button" id="scanBtn">Scan barcode</button>
+          <button class="btn ghost" type="button" id="lookupBtn">Look up</button>
+        </div>
+        <div class="hint" id="lookupMsg">Scan or type an ISBN to fill in the title and author.</div></div>
+      <div class="field"><label for="title">Title</label><input id="title" type="text" value="${esc(book.title)}" required></div>
+      <div class="field"><label for="author">Author</label><input id="author" type="text" value="${esc(book.author)}" required></div>
+      <div class="field"><label for="series">Series <span class="opt">(optional)</span></label><input id="series" type="text" value="${esc(book.series)}"></div>
+      <div class="row2">
+        <div class="field"><label for="year">Published year</label><input id="year" type="number" inputmode="numeric" min="1000" max="${yr + 1}" value="${esc(book.published_year)}"></div>
+        <div class="field"><label for="language">Language</label><select id="language">${
+          [...new Set([...LANGUAGES, book.language].filter(Boolean))].map(l => `<option ${l === book.language ? "selected" : ""}>${esc(l)}</option>`).join("")}</select></div>
+      </div>
+      <div class="field"><span class="legend">Read status</span>${seg("status", READ_STATUSES, book.read_status)}</div>
+      <div class="field"><span class="legend">Type</span>${seg("btype", BOOK_TYPES, book.book_type)}</div>
+      <div class="row2">
+        <div class="field"><label for="room">Room</label><select id="room">${opts(state.rooms, book.room_id, "Not shelved yet")}</select></div>
+        <div class="field"><label for="area">Area</label><select id="area"></select></div>
+      </div>
+      <div class="field"><label for="img">Photo <span class="opt">(optional)</span></label>
+        <div class="photo"><img id="preview" alt="" ${currentImg ? `src="${esc(currentImg)}"` : "hidden"}>
+          <div><input id="img" type="file" accept="image/*">
+          ${currentImg ? `<label class="hint"><input type="checkbox" id="rmImg"> Remove current photo</label>` : ""}
+          <div class="hint">Large photos are resized before upload.</div></div></div></div>
+      <div class="err" id="formErr" role="alert"></div>
+      <div class="actions">
+        <button class="btn" type="submit">${editId ? "Save changes" : "Add to catalog"}</button>
+        <button class="btn ghost" type="button" id="cancel">Cancel</button>
+      </div>
+    </form>`;
+
+  const f = document.getElementById("bookForm");
+  const fillAreas = (sel) => {
+    const rid = f.room.value;
+    const list = state.areas.filter(a => a.room_id === rid);
+    f.area.innerHTML = rid ? opts(list, sel, list.length ? "Any area" : "No areas in this room") : `<option value="">Pick a room first</option>`;
+    f.area.disabled = !rid;
+  };
+  fillAreas(book.area_id);
+  f.room.onchange = () => fillAreas();
+  const fillFromIsbn = async () => {
+    const msg = document.getElementById("lookupMsg");
+    const isbn = cleanIsbn(f.isbn.value);
+    if (!isValidIsbn(isbn)) { msg.textContent = "Enter a valid 10 or 13 digit ISBN first."; return; }
+    f.isbn.value = isbn;
+    await busy(document.getElementById("lookupBtn"), async () => {
+      msg.textContent = "Looking up…";
+      const hit = await lookupIsbn(isbn);
+      if (!hit) { msg.textContent = "Not found in Google Books or Open Library. Type the title and author."; return; }
+      const filled = [f.title.value.trim(), f.author.value.trim()].some(Boolean);
+      if (filled && !confirm(`Replace the title and author with:\n${hit.title}\n${hit.author}?`)) { msg.textContent = ""; return; }
+      f.title.value = hit.title; f.author.value = hit.author;
+      msg.textContent = `Filled from ${hit.source}. Check before saving.`;
+    });
+  };
+  document.getElementById("lookupBtn").onclick = fillFromIsbn;
+  f.isbn.onkeydown = e => { if (e.key === "Enter") { e.preventDefault(); fillFromIsbn(); } };
+  document.getElementById("scanBtn").onclick = async () => {
+    const code = await scanBarcode();
+    if (code) { f.isbn.value = code; fillFromIsbn(); }
+  };
+  f.img.onchange = () => {
+    const file = f.img.files[0], p = document.getElementById("preview");
+    if (file) { p.src = URL.createObjectURL(file); p.hidden = false; }
+  };
+  document.getElementById("cancel").onclick = () => history.back();
+
+  f.onsubmit = async e => {
+    e.preventDefault();
+    const errEl = document.getElementById("formErr"); errEl.textContent = "";
+    const isbn = f.isbn.value.replace(/[\s-]/g, "").toUpperCase();
+    const year = f.year.value ? parseInt(f.year.value, 10) : null;
+    const problems = [];
+    if (!f.owner.value) problems.push("Choose an owner.");
+    if (!f.title.value.trim()) problems.push("Enter a title.");
+    if (!f.author.value.trim()) problems.push("Enter an author.");
+    if (year !== null && (year < 1000 || year > yr + 1)) problems.push(`Published year must be between 1000 and ${yr + 1}.`);
+    if (isbn && !/^(\d{9}[\dX]|\d{13})$/.test(isbn)) problems.push("ISBN must be 10 or 13 digits.");
+    if (problems.length) { errEl.textContent = problems.join(" "); return; }
+
+    await busy(f.querySelector("button[type=submit]"), async () => {
+      try {
+        let image_path = book.image_path || null;
+        const oldPath = image_path;
+        if (f.rmImg?.checked) image_path = null;
+        const file = f.img.files[0];
+        if (file) {
+          const blob = await compressImage(file);
+          const path = `books/${uuid()}.jpg`;
+          const { error } = await sb.storage.from(IMAGE_BUCKET).upload(path, blob, { contentType: "image/jpeg" });
+          if (error) throw error;
+          image_path = path;
+        }
+        const row = {
+          owner_id: f.owner.value, title: f.title.value.trim(), author: f.author.value.trim(),
+          series: f.series.value.trim() || null, published_year: year, isbn: isbn || null,
+          read_status: f.status.value, book_type: f.btype.value, language: f.language.value,
+          room_id: f.room.value || null, area_id: f.area.value || null, image_path,
+        };
+        let res;
+        if (editId) res = await sb.from("books").update(row).eq("id", editId).select("id").single();
+        else res = await sb.from("books").insert(row).select("id").single();
+        if (res.error) throw res.error;
+        if (oldPath && oldPath !== image_path) sb.storage.from(IMAGE_BUCKET).remove([oldPath]); // best effort
+        toast(editId ? "Changes saved" : "Added to catalog");
+        if (editId) { history.replaceState(null, "", "#book/" + editId); route(); }
+        else {
+          // Keep owner/room/area for fast batch entry
+          const keep = { owner: f.owner.value, room: f.room.value, area: f.area.value };
+          await renderForm();
+          const nf = document.getElementById("bookForm");
+          nf.owner.value = keep.owner; nf.room.value = keep.room; nf.room.onchange(); nf.area.value = keep.area;
+          nf.title.focus();
+        }
+      } catch (err) { errEl.textContent = friendly(err); }
+    });
+  };
+}
+
+/* ---------- barcode scan + ISBN lookup ---------- */
+const cleanIsbn = v => String(v || "").replace(/[\s-]/g, "").toUpperCase();
+function isValidIsbn(s) {
+  if (/^\d{13}$/.test(s)) {
+    const sum = [...s].reduce((t, d, i) => t + (+d) * (i % 2 ? 3 : 1), 0);
+    return sum % 10 === 0;
+  }
+  if (/^\d{9}[\dX]$/.test(s)) {
+    const sum = [...s].reduce((t, d, i) => t + (d === "X" ? 10 : +d) * (10 - i), 0);
+    return sum % 11 === 0;
+  }
+  return false;
+}
+
+// Try Google Books and Open Library at the same time; prefer Google Books if both answer
+async function lookupIsbn(isbn) {
+  const withTimeout = (p, ms = 8000) => Promise.race([p, new Promise((_, r) => setTimeout(() => r(new Error("timeout")), ms))]);
+  const google = withTimeout(fetch(`https://www.googleapis.com/books/v1/volumes?q=isbn:${isbn}`).then(r => r.json()))
+    .then(d => { const v = d.items?.[0]?.volumeInfo; return v?.title ? { title: v.title, author: (v.authors || []).join(", "), source: "Google Books" } : null; });
+  const openlib = withTimeout(fetch(`https://openlibrary.org/api/books?bibkeys=ISBN:${isbn}&format=json&jscmd=data`).then(r => r.json()))
+    .then(d => { const v = d[`ISBN:${isbn}`]; return v?.title ? { title: v.title, author: (v.authors || []).map(a => a.name).join(", "), source: "Open Library" } : null; });
+  const [g, o] = await Promise.allSettled([google, openlib]);
+  const hit = (g.status === "fulfilled" && g.value) || (o.status === "fulfilled" && o.value) || null;
+  if (hit && !hit.author) {           // one source sometimes has the title but no author
+    const other = hit.source === "Google Books" ? o : g;
+    if (other.status === "fulfilled" && other.value?.author) hit.author = other.value.author;
+  }
+  return hit;
+}
+
+let zxingLoading;
+function loadZXing() {
+  if (window.ZXingBrowser) return Promise.resolve();
+  return zxingLoading ||= new Promise((res, rej) => {
+    const s = document.createElement("script");
+    s.src = "https://cdn.jsdelivr.net/npm/@zxing/browser@0.2.1/umd/zxing-browser.min.js";
+    s.onload = res; s.onerror = () => { zxingLoading = null; rej(new Error("Couldn't load the scanner. Check your internet connection.")); };
+    document.head.appendChild(s);
+  });
+}
+
+// Opens the camera and resolves with a valid ISBN, or null if closed
+function scanBarcode() {
+  const box = document.getElementById("scanner"), video = document.getElementById("scanVideo"), msg = document.getElementById("scanMsg");
+  return new Promise(async resolve => {
+    let stopFn = () => {}, done = false;
+    const finish = code => {
+      if (done) return; done = true;
+      stopFn(); box.hidden = true; document.removeEventListener("keydown", onKey);
+      if (code && navigator.vibrate) navigator.vibrate(80);
+      resolve(code);
+    };
+    const onKey = e => { if (e.key === "Escape") finish(null); };
+    document.getElementById("scanClose").onclick = () => finish(null);
+    document.addEventListener("keydown", onKey);
+    msg.textContent = "Point the camera at the barcode on the back cover.";
+    box.hidden = false;
+    const handle = text => {
+      const code = cleanIsbn(text);
+      if (isValidIsbn(code) && (code.length === 10 || /^97[89]/.test(code))) finish(code);
+      else msg.textContent = "That barcode isn't an ISBN. Try the one with 978 or 979 above it.";
+    };
+    try {
+      if (!navigator.mediaDevices?.getUserMedia) throw new Error("This browser can't open the camera. Type the ISBN instead.");
+      if ("BarcodeDetector" in window && (await BarcodeDetector.getSupportedFormats()).includes("ean_13")) {
+        // Built-in detector (Chrome on Android): fast, no extra download
+        const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
+        if (done) { stream.getTracks().forEach(t => t.stop()); return; }   // closed while camera was starting
+        video.srcObject = stream; await video.play();
+        const det = new BarcodeDetector({ formats: ["ean_13", "ean_8", "upc_a"] });
+        let timer;
+        stopFn = () => { clearTimeout(timer); stream.getTracks().forEach(t => t.stop()); video.srcObject = null; };
+        const tick = async () => {
+          if (done) return;
+          try { const r = await det.detect(video); if (r[0]) handle(r[0].rawValue); } catch {}
+          if (!done) timer = setTimeout(tick, 150);
+        };
+        tick();
+      } else {
+        // Fallback for iPhone, desktop and older Android: ZXing
+        msg.textContent = "Starting camera…";
+        await loadZXing();
+        const reader = new ZXingBrowser.BrowserMultiFormatReader();
+        const controls = await reader.decodeFromConstraints({ video: { facingMode: "environment" } }, video,
+          result => { if (result) handle(result.getText()); });
+        stopFn = () => controls.stop();
+        if (done) stopFn();
+        else msg.textContent = "Point the camera at the barcode on the back cover.";
+      }
+    } catch (e) {
+      finish(null);
+      const denied = e && (e.name === "NotAllowedError" || e.name === "SecurityError");
+      toast(denied ? "Camera access is blocked. Allow it in your browser or phone settings." : friendly(e), true);
+    }
+  });
+}
+
+/* ---------- find ---------- */
+async function renderFind() {
+  setBar({ title: "Find", back: true });
+  const q = state.findQuery;
+  app.innerHTML = `
+    <h2>Find in catalog</h2>
+    <label class="sr" for="term">Search</label>
+    <input id="term" type="search" placeholder="Title, author, series or ISBN" value="${esc(q.term)}" autocomplete="off">
+    <details class="filters" ${q.owner || q.room || q.status || q.btype || q.lang ? "open" : ""}>
+      <summary>Filters</summary>
+      <div class="grid">
+        <select id="fOwner" aria-label="Owner">${opts(state.owners, q.owner, "Any owner")}</select>
+        <select id="fRoom" aria-label="Room">${opts(state.rooms, q.room, "Any room")}</select>
+        <select id="fArea" aria-label="Area"></select>
+        <select id="fStatus" aria-label="Read status"><option value="">Any status</option>${READ_STATUSES.map(s => `<option ${s === q.status ? "selected" : ""}>${s}</option>`).join("")}</select>
+        <select id="fType" aria-label="Type"><option value="">Any type</option>${BOOK_TYPES.map(s => `<option ${s === q.btype ? "selected" : ""}>${s}</option>`).join("")}</select>
+        <select id="fLang" aria-label="Language"><option value="">Any language</option>${LANGUAGES.map(s => `<option ${s === q.lang ? "selected" : ""}>${s}</option>`).join("")}</select>
+      </div>
+      <button class="btn ghost small" id="clearF" type="button">Clear filters</button>
+    </details>
+    <p class="stat" id="resCount"></p>
+    <div id="results"></div>`;
+
+  const $ = id => document.getElementById(id);
+  const fillAreas = () => {
+    const list = state.areas.filter(a => a.room_id === $("fRoom").value);
+    $("fArea").innerHTML = opts(list, q.area, "Any area"); $("fArea").disabled = !$("fRoom").value;
+  };
+  fillAreas();
+  let timer, seq = 0;
+  const run = async () => {
+    Object.assign(q, { term: $("term").value, owner: $("fOwner").value, room: $("fRoom").value, area: $("fArea").value, status: $("fStatus").value, btype: $("fType").value, lang: $("fLang").value });
+    const mine = ++seq;
+    $("resCount").innerHTML = '<span class="spin" aria-hidden="true"></span> Searching…';
+    let query = sb.from("books")
+      .select("id,title,author,series,published_year,read_status,book_type,language,image_path,owner:owners(name),room:rooms(name),area:areas(name)", { count: "exact" })
+      .order("title").limit(200);
+    let t = q.term.replace(/[%,()*"\\]/g, " ").trim();
+    if (/^[\d\s-]+[xX]?$/.test(t)) t = t.replace(/[\s-]/g, ""); // ISBNs are stored without hyphens
+    if (t) query = query.or(["title", "author", "series", "isbn"].map(c => `${c}.ilike."%${t}%"`).join(","));
+    if (q.owner) query = query.eq("owner_id", q.owner);
+    if (q.room) query = query.eq("room_id", q.room);
+    if (q.area) query = query.eq("area_id", q.area);
+    if (q.status) query = query.eq("read_status", q.status);
+    if (q.btype) query = query.eq("book_type", q.btype);
+    if (q.lang) query = query.eq("language", q.lang);
+    const { data, error, count } = await query;
+    if (mine !== seq) return;
+    if (error) { $("resCount").textContent = friendly(error); return; }
+    $("resCount").textContent = count === 0 ? "" : count > data.length ? `Showing ${data.length} of ${count}. Narrow your search to see more.` : `${count} found`;
+    if (!data.length) {
+      $("results").innerHTML = `<div class="empty">Nothing matches that.<br><br><button class="btn" onclick="go('add')">Add a new item</button></div>`;
+      return;
+    }
+    const urls = await signedUrls(data.map(b => b.image_path));
+    $("results").innerHTML = data.map(b => {
+      const loc = [b.room?.name, b.area?.name].filter(Boolean).join(" / ");
+      return `<button class="icard" data-id="${esc(b.id)}">
+        ${urls[b.image_path] ? `<img class="thumb" src="${esc(urls[b.image_path])}" alt="" loading="lazy">` : `<span class="thumb" aria-hidden="true"></span>`}
+        <span class="body">
+          <span class="t" style="display:block">${esc(b.title)}</span>
+          <span class="a" style="display:block">${esc(b.author)}${b.published_year ? `, ${b.published_year}` : ""}${b.series ? ` (${esc(b.series)})` : ""}</span>
+          <span class="m" style="display:block"><span class="pill ${esc(b.read_status)}">${esc(b.read_status)}</span>${esc(b.book_type)}${b.language && b.language !== "English" ? `, ${esc(b.language)}` : ""}${b.owner?.name ? `, ${esc(b.owner.name)}` : ""}</span>
+        </span>
+        ${loc ? `<span class="callno">${esc(loc)}</span>` : ""}
+      </button>`;
+    }).join("");
+    $("results").querySelectorAll(".icard").forEach(c => c.onclick = () => go("book/" + c.dataset.id));
+  };
+  $("term").oninput = () => { clearTimeout(timer); timer = setTimeout(run, 300); };
+  ["fOwner", "fArea", "fStatus", "fType", "fLang"].forEach(id => $(id).onchange = run);
+  $("fRoom").onchange = () => { q.area = ""; fillAreas(); run(); };
+  $("clearF").onclick = () => { ["fOwner", "fRoom", "fStatus", "fType", "fLang"].forEach(id => $(id).value = ""); q.area = ""; fillAreas(); run(); };
+  run();
+}
+
+/* ---------- detail ---------- */
+async function renderDetail(id) {
+  setBar({ title: "Item", back: true });
+  app.innerHTML = `<p class="stat"><span class="spin"></span> Loading…</p>`;
+  const { data: b, error } = await sb.from("books")
+    .select("*,owner:owners(name),room:rooms(name),area:areas(name)").eq("id", id).maybeSingle();
+  if (error) throw error;
+  if (!b) { app.innerHTML = `<div class="empty">This item no longer exists.</div>`; return; }
+  const img = b.image_path ? (await signedUrls([b.image_path]))[b.image_path] : null;
+  const loc = [b.room?.name, b.area?.name].filter(Boolean).join(" / ") || "Not shelved yet";
+  app.innerHTML = `
+    <article class="sheet">
+      <div class="hero">
+        ${img ? `<a href="${esc(img)}" target="_blank" rel="noopener"><img src="${esc(img)}" alt="Photo of ${esc(b.title)}"></a>` : ""}
+        <div><h2>${esc(b.title)}</h2><div class="stat">${esc(b.author)}</div></div>
+      </div>
+      <dl class="kv">
+        <dt>Location</dt><dd>${esc(loc)}</dd>
+        <dt>Owner</dt><dd>${esc(b.owner?.name)}</dd>
+        <dt>Series</dt><dd>${esc(b.series) || "—"}</dd>
+        <dt>Published</dt><dd>${esc(b.published_year) || "—"}</dd>
+        <dt>ISBN</dt><dd>${esc(b.isbn) || "—"}</dd>
+        <dt>Read status</dt><dd><span class="pill ${esc(b.read_status)}">${esc(b.read_status)}</span></dd>
+        <dt>Type</dt><dd>${esc(b.book_type)}</dd>
+        <dt>Language</dt><dd>${esc(b.language) || "—"}</dd>
+        <dt>Added</dt><dd>${new Date(b.created_at).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })}</dd>
+      </dl>
+    </article>
+    <div class="actions">
+      <button class="btn" id="edit">Edit</button>
+      ${isAdmin() ? `<button class="btn danger" id="del">Delete</button>` : ""}
+    </div>`;
+  document.getElementById("edit").onclick = () => go("edit/" + id);
+  document.getElementById("del")?.addEventListener("click", async e => {
+    if (!confirm(`Delete "${b.title}" from the catalog? This can't be undone.`)) return;
+    await busy(e.currentTarget, async () => {
+      const { error } = await sb.from("books").delete().eq("id", id);
+      if (error) return toast(friendly(error), true);
+      if (b.image_path) await sb.storage.from(IMAGE_BUCKET).remove([b.image_path]);
+      toast("Deleted"); history.replaceState(null, "", "#find"); route();
+    });
+  });
+}
+
+/* ---------- setup (admins) ---------- */
+async function renderSetup(tab) {
+  setBar({ title: "Setup", back: true });
+  await loadLookups();
+  const tabs = [["rooms", "Rooms"], ["areas", "Areas"], ["owners", "Owners"]];
+  app.innerHTML = `
+    <h2>Setup</h2>
+    <div class="tabs" role="tablist">${tabs.map(([k, l]) =>
+      `<button role="tab" aria-selected="${k === tab}" data-tab="${k}">${l}</button>`).join("")}</div>
+    <div id="pane"></div>`;
+  app.querySelectorAll("[data-tab]").forEach(b => b.onclick = () => history.replaceState(null, "", "#setup/" + b.dataset.tab) || renderSetup(b.dataset.tab));
+  const pane = document.getElementById("pane");
+  const refresh = () => renderSetup(tab);
+
+  const rowActions = (table, item, extra = "") => `
+    <li data-id="${esc(item.id)}">
+      <span class="name">${esc(item.name)} ${extra}</span>
+      ${table === "owners" ? (item.is_default ? `<span class="badge">Default</span>` : `<button class="btn ghost small" data-act="default">Make default</button>`) : ""}
+      <button class="btn ghost small" data-act="rename">Rename</button>
+      <button class="btn danger small" data-act="delete">Delete</button>
+    </li>`;
+
+  const wire = (table) => pane.querySelectorAll("li[data-id]").forEach(li => {
+    const id = li.dataset.id, item = byId(state[table], id);
+    li.querySelectorAll("[data-act]").forEach(btn => btn.onclick = async () => {
+      const act = btn.dataset.act;
+      if (act === "delete") {
+        const warn = table === "rooms" ? " All areas inside it will also be removed." : "";
+        if (!confirm(`Delete "${item.name}"?${warn}`)) return;
+        const { error } = await sb.from(table).delete().eq("id", id);
+        if (error) return toast(friendly(error), true);
+        toast("Deleted"); refresh();
+      } else if (act === "default") {
+        const { error } = await sb.rpc("set_default_owner", { p_owner: id });
+        if (error) return toast(friendly(error), true);
+        toast(`${item.name} is now the default owner`); refresh();
+      } else if (act === "rename") {
+        li.innerHTML = `<input type="text" value="${esc(item.name)}" aria-label="New name" style="flex:1;min-width:10rem">
+          <button class="btn small" data-x="save">Save</button><button class="btn ghost small" data-x="cancel">Cancel</button>`;
+        const inp = li.querySelector("input"); inp.focus(); inp.select();
+        li.querySelector('[data-x="cancel"]').onclick = refresh;
+        const save = async () => {
+          const name = inp.value.trim(); if (!name) return;
+          const { error } = await sb.from(table).update({ name }).eq("id", id);
+          if (error) return toast(friendly(error), true);
+          toast("Renamed"); refresh();
+        };
+        li.querySelector('[data-x="save"]').onclick = save;
+        inp.onkeydown = e => { if (e.key === "Enter") save(); if (e.key === "Escape") refresh(); };
+      }
+    });
+  });
+
+  const addForm = (placeholder, extra = "") => `
+    <form class="addrow" id="addForm">${extra}
+      <input id="newName" type="text" placeholder="${placeholder}" aria-label="${placeholder}" required>
+      <button class="btn" type="submit">Add</button></form>`;
+
+  if (tab === "rooms") {
+    pane.innerHTML = addForm("New room, e.g. Commissary office") +
+      (state.rooms.length ? `<ul class="list">${state.rooms.map(r =>
+        rowActions("rooms", r, `<span class="stat">(${state.areas.filter(a => a.room_id === r.id).length} areas)</span>`)).join("")}</ul>`
+        : `<div class="empty">No rooms yet. Add the first one above.</div>`);
+    wire("rooms");
+  } else if (tab === "areas") {
+    if (!state.rooms.length) { pane.innerHTML = `<div class="empty">Add a room first, then add areas inside it.</div>`; return; }
+    pane.innerHTML = addForm("New area, e.g. Shelf B, top row",
+      `<select id="areaRoom" aria-label="Room">${opts(state.rooms, state._lastRoom || state.rooms[0].id)}</select>`) +
+      `<ul class="list">${state.rooms.map(r => {
+        const list = state.areas.filter(a => a.room_id === r.id);
+        return `<li class="group">${esc(r.name)}</li>` + (list.length ? list.map(a => rowActions("areas", a)).join("") : `<li class="stat">No areas</li>`);
+      }).join("")}</ul>`;
+    wire("areas");
+  } else {
+    pane.innerHTML = addForm("New owner, e.g. Accounts team") +
+      `<p class="hint">The default owner is pre-selected on the Add form.</p>` +
+      (state.owners.length ? `<ul class="list">${state.owners.map(o => rowActions("owners", o)).join("")}</ul>`
+        : `<div class="empty">No owners yet. Add the first one above.</div>`);
+    wire("owners");
+  }
+
+  const f = document.getElementById("addForm");
+  f.onsubmit = async e => {
+    e.preventDefault();
+    const name = f.newName.value.trim(); if (!name) return;
+    await busy(f.querySelector("button"), async () => {
+      let row = { name }, table = tab;
+      if (tab === "areas") { row.room_id = f.areaRoom.value; state._lastRoom = row.room_id; }
+      if (tab === "owners" && !state.owners.length) row.is_default = true; // first owner becomes default
+      const { error } = await sb.from(table).insert(row);
+      if (error) return toast(friendly(error), true);
+      toast("Added"); refresh();
+    });
+  };
+}
+
+/* ---------- start ---------- */
+(async function init() {
+  if (!window.supabase || SUPABASE_URL.includes("YOUR-PROJECT")) {
+    app.innerHTML = `<div class="empty" style="margin-top:10vh"><strong>Almost there.</strong><br>
+      Open index.html and paste your Supabase project URL and anon key into the CONFIG section at the top of the script.</div>`;
+    return;
+  }
+  sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, { auth: { persistSession: true, autoRefreshToken: true } });
+  sb.auth.onAuthStateChange(evt => { if (evt === "SIGNED_OUT" && state.user) showLogin(); });
+  try {
+    const { data: { session } } = await sb.auth.getSession();
+    if (session) await afterLogin(session.user); else showLogin();
+  } catch (e) { showLogin(); toast(friendly(e), true); }
+})();
+</script>
+</body>
+</html>
