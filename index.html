@@ -279,13 +279,13 @@ dl.kv dt{color:var(--muted)} dl.kv dd{margin:0;word-break:break-word}
    (the anon / publishable key is designed to live in the app;
     NEVER put the service_role / secret key here)
    ===================================================================== */
-const SUPABASE_URL      = "https://yvmsxokialqwmhqxzqsr.supabase.co";
+const SUPABASE_URL      = "https://yvmsxokialqwmhqxzqsr.supabase.co/";
 const SUPABASE_ANON_KEY = "sb_publishable_WX8WGKGoOUeb9M-gqaWgpQ_7oPJDDjB";
 const USERNAME_DOMAIN   = "catalog.local";   // usernames become username@catalog.local
 const IMAGE_BUCKET      = "book-images";
 /* ===================================================================== */
 
-const APP_VERSION = "2026-10-15 (suggestions v3)";
+const APP_VERSION = "2026-10-15 (suggestions v5)";
 const READ_STATUSES = ["Unread", "Reading", "Read"];
 const BOOK_TYPES    = ["Hardcover", "Paperback", "Ebook", "Others"];
 // Edit this list to add genres; no database change needed
@@ -488,9 +488,10 @@ async function renderForm(editId) {
         <div class="hint" id="lookupMsg">Scan or type an ISBN to fill in the title, author and cover.</div>
         <div class="elsewhere" id="elsewhere" hidden></div></div>
       <div class="field"><label for="title">Title</label><input id="title" name="title" type="text" value="${esc(book.title)}" required></div>
-      <div class="field"><label for="author">Author</label><input id="author" name="author" type="text" value="${esc(book.author)}" required></div>
+      <div class="field"><label for="author">Author</label><input id="author" name="author" type="text" value="${esc(book.author)}" required autocomplete="off"></div>
       <div class="row2">
-        <div class="field"><label for="series">Series <span class="opt">(optional)</span></label><input id="series" name="series" type="text" value="${esc(book.series)}"></div>
+        <div class="field"><label for="series">Series <span class="opt">(optional)</span></label><input id="series" name="series" type="text" value="${esc(book.series)}" autocomplete="off">
+          <div class="hint" id="seriesHint" hidden></div></div>
         <div class="field"><label for="volume">Volume <span class="opt">(optional)</span></label><input id="volume" name="volume" type="text" placeholder="e.g. 2, III, Part 1" value="${esc(book.volume)}" autocomplete="off">
           <div class="hint" id="volHint" hidden></div></div>
       </div>
@@ -600,10 +601,32 @@ async function renderForm(editId) {
     return `No ${what} saved yet in ${state.sugg.books} book${state.sugg.books === 1 ? "" : "s"}. Names appear here once books have one.`;
   };
   const pubSuggest = attachSuggest(f.publisher, () => state.sugg?.pubs || [], suggStatus("publishers"));
-  const volSuggest = attachSuggest(f.volume, volumeItems, suggStatus("volumes"));
+  const authSuggest = attachSuggest(f.author, () => state.sugg?.authors || [], suggStatus("authors"));
+  // Series: this author's series first, then everything else
+  const seriesItems = () => {
+    const mine = state.sugg?.authorSeries[f.author.value.trim().toLowerCase()] || [];
+    return [...new Set([...mine, ...(state.sugg?.series || [])])];
+  };
+  const serSuggest = attachSuggest(f.series, seriesItems, suggStatus("series"));
+  // Known series: fill in its usual author and publisher, but only into empty fields
+  const fillFromSeries = () => {
+    const info = state.sugg?.seriesInfo[f.series.value.trim().toLowerCase()];
+    const hint = document.getElementById("seriesHint");
+    if (!info) { hint.hidden = true; return; }
+    const filled = [];
+    if (info.author && !f.author.value.trim()) { f.author.value = info.author; filled.push("author"); }
+    if (info.publisher && !f.publisher.value.trim()) { f.publisher.value = info.publisher; filled.push("publisher"); }
+    if (filled.length) {
+      hint.hidden = false;
+      hint.textContent = `Filled ${filled.join(" and ")} from other books in this series. Change them if needed.`;
+      touched.add("author"); renderPreview();
+    }
+  };
+  f.series.addEventListener("change", fillFromSeries);   // fires when a suggestion is picked or the field is left
+  f.series.addEventListener("input", () => { if (seriesItems().some(v => v.toLowerCase() === f.series.value.trim().toLowerCase())) fillFromSeries(); });
   if (!state.sugg) state.suggStatus = "loading";
   f.series.addEventListener("input", volHint);
-  loadSuggestions().then(() => { volHint(); pubSuggest.refresh(); volSuggest.refresh(); });
+  loadSuggestions().then(() => { volHint(); [pubSuggest, authSuggest, serSuggest].forEach(x => x.refresh()); });
 
   const touched = new Set();
   f.addEventListener("input", e => { touched.add(e.target.name); renderPreview(); });
@@ -931,7 +954,7 @@ async function loadSuggestions() {
   state.suggStatus = "loading";
   let rows = [];
   for (let from = 0; ; from += 1000) {
-    const { data, error } = await sb.from("books").select("publisher,volume,series").range(from, from + 999);
+    const { data, error } = await sb.from("books").select("publisher,volume,series,author").range(from, from + 999);
     if (error) { console.warn("Couldn't load suggestions:", error.message); state.sugg = null; state.suggStatus = "Couldn't load saved names: " + error.message; return null; }
     rows = rows.concat(data);
     if (data.length < 1000) break;
@@ -944,7 +967,19 @@ async function loadSuggestions() {
   const sortVol = (a, b) => (parseInt(a, 10) || 0) - (parseInt(b, 10) || 0) || a.localeCompare(b);
   for (const k in bySeries) bySeries[k] = [...new Set(bySeries[k])].sort(sortVol);
   state.suggStatus = "ok";
-  state.sugg = { at: Date.now(), books: rows.length, pubs: tally(rows.map(b => b.publisher)), vols: tally(rows.map(b => b.volume)).slice(0, 40), bySeries };
+  // For each series: its usual author and publisher (used to auto-fill); for each author: their series
+  const seriesInfo = {}, authorSeries = {};
+  for (const b of rows) {
+    const sk = b.series?.trim().toLowerCase(); if (!sk) continue;
+    const e = (seriesInfo[sk] ||= { authors: [], pubs: [] });
+    e.authors.push(b.author); e.pubs.push(b.publisher);
+    const ak = b.author?.trim().toLowerCase(); if (ak) (authorSeries[ak] ||= []).push(b.series);
+  }
+  for (const k in seriesInfo) seriesInfo[k] = { author: tally(seriesInfo[k].authors)[0] || "", publisher: tally(seriesInfo[k].pubs)[0] || "" };
+  for (const k in authorSeries) authorSeries[k] = tally(authorSeries[k]);
+  state.sugg = { at: Date.now(), books: rows.length, bySeries, seriesInfo, authorSeries,
+    pubs: tally(rows.map(b => b.publisher)), vols: tally(rows.map(b => b.volume)).slice(0, 40),
+    authors: tally(rows.map(b => b.author)), series: tally(rows.map(b => b.series)) };
   return state.sugg;
 }
 
