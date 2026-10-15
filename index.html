@@ -214,6 +214,13 @@ dl.kv dt{color:var(--muted)} dl.kv dd{margin:0;word-break:break-word}
 .extlink{display:inline-flex;align-items:center;gap:.25rem;border:1px solid var(--line);background:var(--card);color:var(--ink);text-decoration:none;
   border-radius:999px;padding:.3rem .8rem;min-height:36px;font-weight:700}
 .extlink:hover{border-color:var(--green)}
+.sgwrap{position:relative}
+.sgbox{position:absolute;left:0;right:0;top:calc(100% + 4px);z-index:25;list-style:none;margin:0;padding:.3rem;max-height:250px;overflow-y:auto;
+  background:var(--card);border:1px solid var(--line);border-radius:12px;box-shadow:0 10px 28px rgba(0,0,0,.14)}
+.sgbox[hidden]{display:none}
+.sgbox li{padding:.6rem .75rem;border-radius:8px;cursor:pointer;min-height:44px;display:flex;align-items:center}
+.sgbox li:hover,.sgbox li.on{background:var(--track)}
+.sgbox li b{color:var(--green)}
 .pvactions{display:flex;gap:.5rem;flex-wrap:wrap;margin-top:.6rem}
 .covers{margin-top:.9rem}
 .cstrip{display:flex;gap:.6rem;overflow-x:auto;padding:.2rem .1rem .5rem;scroll-snap-type:x proximity}
@@ -478,9 +485,10 @@ async function renderForm(editId) {
       <div class="field"><label for="author">Author</label><input id="author" name="author" type="text" value="${esc(book.author)}" required></div>
       <div class="row2">
         <div class="field"><label for="series">Series <span class="opt">(optional)</span></label><input id="series" name="series" type="text" value="${esc(book.series)}"></div>
-        <div class="field"><label for="volume">Volume <span class="opt">(optional)</span></label><input id="volume" name="volume" type="text" placeholder="e.g. 2, III, Part 1" value="${esc(book.volume)}"></div>
+        <div class="field"><label for="volume">Volume <span class="opt">(optional)</span></label><input id="volume" name="volume" type="text" placeholder="e.g. 2, III, Part 1" value="${esc(book.volume)}" autocomplete="off">
+          <div class="hint" id="volHint" hidden></div></div>
       </div>
-      <div class="field"><label for="publisher">Publisher <span class="opt">(optional)</span></label><input id="publisher" name="publisher" type="text" value="${esc(book.publisher)}"></div>
+      <div class="field"><label for="publisher">Publisher <span class="opt">(optional)</span></label><input id="publisher" name="publisher" type="text" value="${esc(book.publisher)}" autocomplete="off"></div>
       <div class="row2">
         <div class="field"><label for="year">Published year</label><input id="year" name="year" type="number" inputmode="numeric" min="1000" max="${yr + 1}" value="${esc(book.published_year)}"></div>
         <div class="field"><label for="language">Language</label><select id="language" name="language">${
@@ -566,6 +574,24 @@ async function renderForm(editId) {
     renderCovers();
     document.getElementById("keepOld").hidden = !(book.image_path && photo.kind !== "existing");
   };
+  /* ----- suggestions from books already in the catalog ----- */
+  const seriesVolumes = () => state.sugg?.bySeries[f.series.value.trim().toLowerCase()] || null;
+  const volumeItems = () => {
+    const have = seriesVolumes();
+    if (!have) return state.sugg?.vols || [];
+    const nums = have.map(v => parseInt(v, 10)).filter(n => !isNaN(n));
+    return [...new Set([nums.length ? String(Math.max(...nums) + 1) : "", ...have].filter(Boolean))];   // next number first
+  };
+  const volHint = () => {
+    const have = seriesVolumes(), hint = document.getElementById("volHint");
+    hint.hidden = !have;
+    if (have) { const next = volumeItems()[0]; hint.textContent = `This series has ${have.length === 1 ? "volume" : "volumes"} ${have.join(", ")}${next && !have.includes(next) ? `. Next: ${next}` : ""}.`; }
+  };
+  const pubSuggest = attachSuggest(f.publisher, () => state.sugg?.pubs || []);
+  const volSuggest = attachSuggest(f.volume, volumeItems);
+  f.series.addEventListener("input", volHint);
+  loadSuggestions().then(() => { volHint(); pubSuggest.refresh(); volSuggest.refresh(); });
+
   const touched = new Set();
   f.addEventListener("input", e => { touched.add(e.target.name); renderPreview(); });
   f.addEventListener("change", e => { touched.add(e.target.name); renderPreview(); });
@@ -676,8 +702,11 @@ async function renderForm(editId) {
     f.isbn.value = isbn;
     await busy(document.getElementById("lookupBtn"), async () => {
       msgEl.textContent = "Looking up…";
-      const hit = await lookupIsbn(isbn);
-      showElsewhere(hit.title ? "" : isbn);
+      let hit;
+      try { hit = await lookupIsbn(isbn); }
+      catch { hit = { covers: [] }; }   // never leave the form stuck on "Looking up…"
+      // Always offer the other sites after a lookup: not found, partly found (e.g. no author), or a wrong match
+      showElsewhere(isbn, !hit.title ? "Search elsewhere:" : !hit.author ? "Author missing? Search elsewhere:" : "Not the right book? Check:");
       if (!hit.title) msgEl.textContent = "Not found in Google Books, Open Library or Crossref. Search one of these sites, then type the title and author.";
       else {
         const found = [["Title", f.title, hit.title], ["Author", f.author, hit.author], ["Publisher", f.publisher, hit.publisher], ["Published year", f.year, hit.year], ["Genre", f.genre, hit.genre]]
@@ -695,7 +724,7 @@ async function renderForm(editId) {
     await checkDuplicates();
   };
   // One-tap searches on sites the app can't read directly; each opens in a new tab with the ISBN searched
-  const showElsewhere = isbn => {
+  const showElsewhere = (isbn, label = "Search elsewhere:") => {
     const box = document.getElementById("elsewhere");
     box.hidden = !isbn;
     if (!isbn) { box.innerHTML = ""; return; }
@@ -704,7 +733,7 @@ async function renderForm(editId) {
       ["Bookshop", `https://bookshop.org/search?keywords=${isbn}`],
       ["Biblio", `https://www.biblio.com/${isbn}`],
     ];
-    box.innerHTML = `<span>Search elsewhere:</span>` + sites.map(([name, url]) =>
+    box.innerHTML = `<span>${esc(label)}</span>` + sites.map(([name, url]) =>
       `<a class="extlink" href="${esc(url)}" target="_blank" rel="noopener noreferrer">${name} <span aria-hidden="true">↗</span><span class="sr"> (opens in a new tab)</span></a>`).join("");
   };
   f.isbn.addEventListener("input", () => showElsewhere(""));
@@ -788,6 +817,7 @@ async function renderForm(editId) {
           : await sb.from("books").insert(row).select("id").single();
         if (res.error) throw res.error;
         if (oldPath && oldPath !== image_path && !isExternal(oldPath)) sb.storage.from(IMAGE_BUCKET).remove([oldPath]); // best effort
+        state.sugg = null;   // include this book's publisher/volume in suggestions next time
         toast(editId ? "Changes saved" : "Added to catalog");
         if (editId) { history.replaceState(null, "", "#book/" + editId); route(); }
         else {
@@ -808,6 +838,91 @@ async function renderForm(editId) {
       } catch (err) { errEl.textContent = friendly(err); }
     });
   };
+}
+
+/* ---------- suggestion dropdown (works in every browser and in the phone apps) ---------- */
+function attachSuggest(input, getItems) {
+  const box = document.createElement("ul");
+  box.className = "sgbox"; box.id = input.id + "Sg"; box.hidden = true; box.setAttribute("role", "listbox");
+  input.parentElement.classList.add("sgwrap");
+  input.after(box);
+  input.setAttribute("role", "combobox"); input.setAttribute("aria-autocomplete", "list");
+  input.setAttribute("aria-controls", box.id); input.setAttribute("aria-expanded", "false");
+  let items = [], active = -1, picking = false;
+  const mark = (v, q) => {
+    const i = q ? v.toLowerCase().indexOf(q) : -1;
+    return i < 0 ? esc(v) : esc(v.slice(0, i)) + "<b>" + esc(v.slice(i, i + q.length)) + "</b>" + esc(v.slice(i + q.length));
+  };
+  const close = () => { box.hidden = true; active = -1; input.setAttribute("aria-expanded", "false"); input.removeAttribute("aria-activedescendant"); };
+  const render = () => {
+    if (document.activeElement !== input) return close();
+    const q = input.value.trim().toLowerCase();
+    const all = getItems();
+    items = (q
+      ? all.filter(v => v.toLowerCase().includes(q) && v.toLowerCase() !== q)
+           .sort((a, b) => b.toLowerCase().startsWith(q) - a.toLowerCase().startsWith(q))   // "starts with" first
+      : all).slice(0, 8);
+    if (!items.length) return close();
+    active = -1;
+    box.innerHTML = items.map((v, i) => `<li role="option" id="${box.id}-${i}" data-i="${i}">${mark(v, q)}</li>`).join("");
+    box.hidden = false; input.setAttribute("aria-expanded", "true");
+  };
+  const pick = i => {
+    input.value = items[i];
+    picking = true; input.dispatchEvent(new Event("input", { bubbles: true })); picking = false;   // updates the preview
+    close();
+  };
+  const move = d => {
+    active = (active + d + items.length) % items.length;
+    box.querySelectorAll("li").forEach((li, i) => li.classList.toggle("on", i === active));
+    input.setAttribute("aria-activedescendant", `${box.id}-${active}`);
+    box.children[active]?.scrollIntoView?.({ block: "nearest" });
+  };
+  input.addEventListener("input", () => { if (!picking) render(); });
+  input.addEventListener("focus", render);
+  input.addEventListener("blur", () => setTimeout(close, 120));
+  input.addEventListener("keydown", e => {
+    if (box.hidden) { if (e.key === "ArrowDown") { render(); e.preventDefault(); } return; }
+    if (e.key === "ArrowDown") { move(1); e.preventDefault(); }
+    else if (e.key === "ArrowUp") { move(-1); e.preventDefault(); }
+    else if (e.key === "Enter" && active >= 0) { pick(active); e.preventDefault(); }
+    else if (e.key === "Escape") { close(); e.preventDefault(); }
+  });
+  // pointerdown (not click) so the choice lands before the field loses focus
+  box.addEventListener("pointerdown", e => { const li = e.target.closest("li"); if (li) { e.preventDefault(); pick(+li.dataset.i); } });
+  return { refresh: render };
+}
+
+/* ---------- suggestions (publisher, volume) ---------- */
+// Count values case-insensitively, keep the most used spelling, most common first
+function tally(values) {
+  const m = new Map();
+  for (const raw of values) {
+    const v = (raw || "").trim(); if (!v) continue;
+    const k = v.toLowerCase(), e = m.get(k) || { n: 0, forms: new Map() };
+    e.n++; e.forms.set(v, (e.forms.get(v) || 0) + 1); m.set(k, e);
+  }
+  return [...m.values()].sort((a, b) => b.n - a.n)
+    .map(e => [...e.forms.entries()].sort((a, b) => b[1] - a[1])[0][0]);
+}
+async function loadSuggestions() {
+  if (state.sugg && Date.now() - state.sugg.at < 5 * 60e3) return state.sugg;
+  let rows = [];
+  for (let from = 0; ; from += 1000) {
+    const { data, error } = await sb.from("books").select("publisher,volume,series").range(from, from + 999);
+    if (error) { console.warn("Couldn't load suggestions:", error.message); state.sugg = null; return null; }
+    rows = rows.concat(data);
+    if (data.length < 1000) break;
+  }
+  const bySeries = {};
+  for (const b of rows) {
+    if (!b.series?.trim() || !b.volume?.trim()) continue;
+    (bySeries[b.series.trim().toLowerCase()] ||= []).push(b.volume.trim());
+  }
+  const sortVol = (a, b) => (parseInt(a, 10) || 0) - (parseInt(b, 10) || 0) || a.localeCompare(b);
+  for (const k in bySeries) bySeries[k] = [...new Set(bySeries[k])].sort(sortVol);
+  state.sugg = { at: Date.now(), pubs: tally(rows.map(b => b.publisher)), vols: tally(rows.map(b => b.volume)).slice(0, 40), bySeries };
+  return state.sugg;
 }
 
 /* ---------- duplicate check ---------- */
