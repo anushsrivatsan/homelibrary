@@ -210,6 +210,10 @@ dl.kv dt{color:var(--muted)} dl.kv dd{margin:0;word-break:break-word}
 .notice{background:var(--card);border:1px solid var(--brass);border-left:6px solid var(--brass);border-radius:6px;padding:.8rem 1rem;margin-bottom:1rem}
 .previewbox{margin-top:1.5rem;padding-top:.5rem;border-top:1px dashed var(--line)}
 .previewbox h3{margin-top:.5rem}
+.elsewhere{display:flex;flex-wrap:wrap;align-items:center;gap:.45rem;margin-top:.5rem;font-size:.88rem;color:var(--muted)}
+.extlink{display:inline-flex;align-items:center;gap:.25rem;border:1px solid var(--line);background:var(--card);color:var(--ink);text-decoration:none;
+  border-radius:999px;padding:.3rem .8rem;min-height:36px;font-weight:700}
+.extlink:hover{border-color:var(--green)}
 .pvactions{display:flex;gap:.5rem;flex-wrap:wrap;margin-top:.6rem}
 .covers{margin-top:.9rem}
 .cstrip{display:flex;gap:.6rem;overflow-x:auto;padding:.2rem .1rem .5rem;scroll-snap-type:x proximity}
@@ -468,7 +472,8 @@ async function renderForm(editId) {
           <button class="btn ghost" type="button" id="scanBtn">Scan barcode</button>
           <button class="btn ghost" type="button" id="lookupBtn">Look up</button>
         </div>
-        <div class="hint" id="lookupMsg">Scan or type an ISBN to fill in the title, author and cover.</div></div>
+        <div class="hint" id="lookupMsg">Scan or type an ISBN to fill in the title, author and cover.</div>
+        <div class="elsewhere" id="elsewhere" hidden></div></div>
       <div class="field"><label for="title">Title</label><input id="title" name="title" type="text" value="${esc(book.title)}" required></div>
       <div class="field"><label for="author">Author</label><input id="author" name="author" type="text" value="${esc(book.author)}" required></div>
       <div class="row2">
@@ -672,7 +677,8 @@ async function renderForm(editId) {
     await busy(document.getElementById("lookupBtn"), async () => {
       msgEl.textContent = "Looking up…";
       const hit = await lookupIsbn(isbn);
-      if (!hit.title) msgEl.textContent = "Not found in Google Books or Open Library. Type the title and author.";
+      showElsewhere(hit.title ? "" : isbn);
+      if (!hit.title) msgEl.textContent = "Not found in Google Books, Open Library or Crossref. Search one of these sites, then type the title and author.";
       else {
         const found = [["Title", f.title, hit.title], ["Author", f.author, hit.author], ["Publisher", f.publisher, hit.publisher], ["Published year", f.year, hit.year], ["Genre", f.genre, hit.genre]]
           .filter(([, , v]) => v);
@@ -688,6 +694,20 @@ async function renderForm(editId) {
     });
     await checkDuplicates();
   };
+  // One-tap searches on sites the app can't read directly; each opens in a new tab with the ISBN searched
+  const showElsewhere = isbn => {
+    const box = document.getElementById("elsewhere");
+    box.hidden = !isbn;
+    if (!isbn) { box.innerHTML = ""; return; }
+    const sites = [
+      ["WorldCat", `https://search.worldcat.org/search?q=bn:${isbn}`],
+      ["Bookshop", `https://bookshop.org/search?keywords=${isbn}`],
+      ["Biblio", `https://www.biblio.com/${isbn}`],
+    ];
+    box.innerHTML = `<span>Search elsewhere:</span>` + sites.map(([name, url]) =>
+      `<a class="extlink" href="${esc(url)}" target="_blank" rel="noopener noreferrer">${name} <span aria-hidden="true">↗</span><span class="sr"> (opens in a new tab)</span></a>`).join("");
+  };
+  f.isbn.addEventListener("input", () => showElsewhere(""));
   document.getElementById("lookupBtn").onclick = fillFromIsbn;
   f.isbn.onkeydown = e => { if (e.key === "Enter") { e.preventDefault(); fillFromIsbn(); } };
   document.getElementById("scanBtn").onclick = async () => {
@@ -872,29 +892,77 @@ function genreOf(categories) {
   return GENRES.includes(g) ? g : "";
 }
 
-// Try Google Books and Open Library at the same time; prefer Google Books if both answer
+// Every book with an ISBN-10 also has an ISBN-13 (978…). Databases often hold only one form, so try both.
+function isbnForms(isbn) {
+  const s = cleanIsbn(isbn), forms = [s];
+  const to13 = d12 => d12 + (10 - [...d12].reduce((t, d, i) => t + +d * (i % 2 ? 3 : 1), 0) % 10) % 10;
+  const to10 = d9 => { const c = (11 - [...d9].reduce((t, d, i) => t + +d * (10 - i), 0) % 11) % 11; return d9 + (c === 10 ? "X" : c); };
+  if (s.length === 10) forms.push(to13("978" + s.slice(0, 9)));
+  if (s.length === 13 && s.startsWith("978")) forms.push(to10(s.slice(3, 12)));
+  return forms;
+}
+
+// Ask several free book databases at the same time and combine what they know.
+// Order of trust: Google Books, Open Library (edition record), Open Library (search index), Crossref.
 async function lookupIsbn(isbn) {
-  const withTimeout = (p, ms = 8000) => Promise.race([p, new Promise((_, r) => setTimeout(() => r(new Error("timeout")), ms))]);
-  const google = withTimeout(fetch(`https://www.googleapis.com/books/v1/volumes?q=isbn:${isbn}`).then(r => r.json()))
-    .then(d => { const v = d.items?.[0]?.volumeInfo; return v?.title ? { title: v.title, author: (v.authors || []).join(", "), source: "Google Books", year: yearOf(v.publishedDate), publisher: v.publisher || "", genre: genreOf(v.categories),
-      cover: v.imageLinks?.thumbnail?.replace(/^http:/, "https:").replace("&edge=curl", "") } : null; });
-  const openlib = withTimeout(fetch(`https://openlibrary.org/api/books?bibkeys=ISBN:${isbn}&format=json&jscmd=data`).then(r => r.json()))
-    .then(d => { const v = d[`ISBN:${isbn}`]; return v?.title ? { title: v.title, author: (v.authors || []).map(a => a.name).join(", "), source: "Open Library", year: yearOf(v.publish_date), publisher: v.publishers?.[0]?.name || "",
-      cover: v.cover?.large || v.cover?.medium } : null; });
-  const [g, o] = await Promise.allSettled([google, openlib]);
-  const gv = g.status === "fulfilled" ? g.value : null, ov = o.status === "fulfilled" ? o.value : null;
-  const hit = gv || ov ? { ...(gv || ov) } : {};
-  const other = hit.source === "Google Books" ? ov : gv;
-  if (hit.title && !hit.author) hit.author = other?.author || "";   // one source may lack the author
-  if (hit.title && !hit.year) hit.year = other?.year || "";         // ...or the year
-  if (hit.title && !hit.publisher) hit.publisher = other?.publisher || "";
-  if (hit.title && !hit.genre) hit.genre = gv?.genre || "";
-  // Cover candidates, best first: Open Library large, Open Library by ISBN, Google Books thumbnail (small)
+  const forms = isbnForms(isbn), i13 = forms.find(f => f.length === 13) || forms[0];
+  const getJSON = (url, ms = 8000) => Promise.race([
+    fetch(url).then(r => (r.ok ? r.json() : null)),
+    new Promise((_, r) => setTimeout(() => r(new Error("timeout")), ms)),
+  ]);
+  const authorsOf = list => (list || []).filter(Boolean).join(", ");
+
+  const sources = [
+    // 1. Google Books (tries each ISBN form until one answers)
+    (async () => {
+      for (const f of forms) {
+        const v = (await getJSON(`https://www.googleapis.com/books/v1/volumes?q=isbn:${f}`))?.items?.[0]?.volumeInfo;
+        if (v?.title) return { source: "Google Books", title: [v.title, v.subtitle].filter(Boolean).join(": "), author: authorsOf(v.authors),
+          year: yearOf(v.publishedDate), publisher: v.publisher || "", genre: genreOf(v.categories),
+          cover: v.imageLinks?.thumbnail?.replace(/^http:/, "https:").replace("&edge=curl", "") };
+      }
+      return null;
+    })(),
+    // 2. Open Library edition record (both ISBN forms in one request)
+    getJSON(`https://openlibrary.org/api/books?bibkeys=${forms.map(f => "ISBN:" + f).join(",")}&format=json&jscmd=data`).then(d => {
+      const v = forms.map(f => d?.[`ISBN:${f}`]).find(Boolean);
+      return v?.title ? { source: "Open Library", title: [v.title, v.subtitle].filter(Boolean).join(": "), author: authorsOf((v.authors || []).map(a => a.name)),
+        year: yearOf(v.publish_date), publisher: v.publishers?.[0]?.name || "", genre: genreOf((v.subjects || []).map(x => x.name)),
+        cover: v.cover?.large || v.cover?.medium } : null;
+    }),
+    // 3. Open Library search index (finds some books the edition record misses)
+    getJSON(`https://openlibrary.org/search.json?isbn=${i13}&fields=title,subtitle,author_name,first_publish_year,publisher,cover_i,subject&limit=1`).then(d => {
+      const v = d?.docs?.[0];
+      return v?.title ? { source: "Open Library", title: [v.title, v.subtitle].filter(Boolean).join(": "), author: authorsOf(v.author_name),
+        year: "", firstYear: v.first_publish_year ? String(v.first_publish_year) : "",   // first-ever publication, used only as a last resort
+        publisher: v.publisher?.[0] || "", genre: genreOf(v.subject),
+        cover: v.cover_i ? `https://covers.openlibrary.org/b/id/${v.cover_i}-L.jpg` : "" } : null;
+    }),
+    // 4. Crossref (strong on academic, technical and reference books)
+    getJSON(`https://api.crossref.org/works?filter=isbn:${i13}&rows=1&select=title,author,editor,publisher,issued`).then(d => {
+      const v = d?.message?.items?.[0];
+      const people = (v?.author || v?.editor || []).map(a => [a.given, a.family].filter(Boolean).join(" ") || a.name);
+      return v?.title?.[0] ? { source: "Crossref", title: v.title[0], author: authorsOf(people),
+        year: yearOf(v.issued?.["date-parts"]?.[0]?.[0]), publisher: v.publisher || "", genre: "", cover: "" } : null;
+    }),
+  ];
+  const found = (await Promise.allSettled(sources)).map(r => (r.status === "fulfilled" ? r.value : null)).filter(Boolean);
+
+  // Take the most trusted answer, then fill any gaps from the others
+  const hit = found.length ? { ...found[0] } : {};
+  const used = new Set(found.length ? [found[0].source] : []);
+  for (const k of ["author", "year", "publisher", "genre"]) {
+    if (hit.title && !hit[k]) { const o = found.find(x => x[k]); if (o) { hit[k] = o[k]; used.add(o.source); } }
+  }
+  if (hit.title && !hit.year) { const o = found.find(x => x.firstYear); if (o) { hit.year = o.firstYear; used.add(o.source); } }
+  if (hit.title) hit.source = [...used].join(" + ");
+
+  // Cover candidates, best first: Open Library large covers, Open Library by ISBN, Google Books thumbnail (small)
   hit.covers = [
-    ov?.cover && { url: ov.cover, source: "Open Library" },
-    { url: `https://covers.openlibrary.org/b/isbn/${isbn}-L.jpg?default=false`, source: "Open Library" },
-    gv?.cover && { url: gv.cover, source: "Google Books" },
-  ].filter(Boolean);
+    ...found.filter(x => x.source === "Open Library" && x.cover).map(x => ({ url: x.cover, source: "Open Library" })),
+    ...forms.map(f => ({ url: `https://covers.openlibrary.org/b/isbn/${f}-L.jpg?default=false`, source: "Open Library" })),
+    ...found.filter(x => x.source === "Google Books" && x.cover).map(x => ({ url: x.cover, source: "Google Books" })),
+  ];
   return hit;
 }
 
