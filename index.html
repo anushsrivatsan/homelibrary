@@ -287,7 +287,7 @@ const USERNAME_DOMAIN   = "catalog.local";   // usernames become username@catalo
 const IMAGE_BUCKET      = "book-images";
 /* ===================================================================== */
 
-const APP_VERSION = "2026-10-17 (bulk covers)";
+const APP_VERSION = "2026-10-17 (bulk covers v2)";
 const READ_STATUSES = ["Unread", "Reading", "Read"];
 const BOOK_TYPES    = ["Hardcover", "Paperback", "Ebook", "Audiobook", "Others"];
 // Edit this list to add genres; no database change needed
@@ -882,12 +882,32 @@ async function renderForm(editId) {
 // Loose text comparison: ignores case, accents, punctuation and bracketed notes like "(Kindle Edition)"
 const normText = s => (s || "").toLowerCase().normalize("NFKD").replace(/[\u0300-\u036f]/g, "")
   .replace(/\(.*?\)|\[.*?\]/g, " ").replace(/[^a-z0-9]+/g, " ").trim();
-// Same book if the main titles match; a subtitle after ":" or " - " is ignored, and so is a leading "The/A/An".
+// Volume markers in a title: "Volume 1", "Vol. II", "Part Three", "Book 2" → number
+const VOL_RE = /\b(?:vol(?:ume)?|part|book|bk)\.?\s*(\d+|[ivxlc]+|one|two|three|four|five|six|seven|eight|nine|ten)\b/i;
+function volNumber(v) {
+  if (!v) return "";
+  v = String(v).toLowerCase().trim();
+  const words = { one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10 };
+  if (words[v]) return String(words[v]);
+  if (/^\d+$/.test(v)) return String(+v);
+  if (/^[ivxlc]+$/.test(v)) {                                      // roman numerals
+    const r = { i: 1, v: 5, x: 10, l: 50, c: 100 }; let n = 0;
+    for (let i = 0; i < v.length; i++) n += r[v[i]] < (r[v[i + 1]] || 0) ? -r[v[i]] : r[v[i]];
+    return String(n);
+  }
+  const m = v.match(VOL_RE); return m ? volNumber(m[1]) : "";
+}
+// The core title used to search and compare: before any subtitle, without "Volume N", "(Kindle Edition)" etc.
+function coreTitle(t) {
+  return String(t || "").split(/\s*[:;]\s*|\s+[-–—]\s+/)[0]
+    .replace(/\(.*?\)|\[.*?\]/g, " ").replace(VOL_RE, " ").replace(/[,.\s]+$/, "").replace(/\s+/g, " ").trim();
+}
+// Same book if the core titles match (subtitle, leading "The/A/An" and volume markers ignored).
 // "Harry Potter" does NOT match "Harry Potter and the Chamber of Secrets" (different book in the series).
 function titleMatches(want, got) {
-  const main = t => normText(String(t || "").split(/\s*[:;]\s*|\s+[-–—]\s+/)[0]).replace(/^(the|a|an) /, "");
-  const a = main(want), b = main(got);
-  return !!a && !!b && (a === b || normText(want).replace(/^(the|a|an) /, "") === normText(got).replace(/^(the|a|an) /, ""));
+  const core = t => normText(coreTitle(t)).replace(/^(the|a|an) /, "");
+  const a = core(want), b = core(got);
+  return !!a && !!b && a === b;
 }
 function authorMatches(want, gotList) {
   const words = normText(want).split(" ").filter(w => w.length >= 3);
@@ -896,26 +916,54 @@ function authorMatches(want, gotList) {
   return words.some(w => got.split(" ").includes(w));                 // shares a surname / name
 }
 // Best single cover for a catalogued book. Only accepts results whose title and author match.
+// Returns { url, source, how, note? }, or { busy: true } if the services kept refusing, or null if not found.
 async function findBestCover(book) {
   const tryList = async list => { for (const c of list) { if (await probeImage(c.url)) return c; } return null; };
+  let busy = false;
+  // Fetch JSON; if the service says "too many requests" (429) or is down (5xx), wait and retry
+  const getJSON = async url => {
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        const r = await Promise.race([fetch(url), new Promise((_, rej) => setTimeout(() => rej(new Error("timeout")), 10000))]);
+        if (r.ok) return await r.json();
+        if (r.status !== 429 && r.status < 500) return null;      // a real "no", not worth retrying
+      } catch {}
+      await new Promise(res => setTimeout(res, 2000 * (attempt + 1)));
+    }
+    busy = true; return null;
+  };
+
   const isbn = cleanIsbn(book.isbn);
-  if (isValidIsbn(isbn)) {                                            // exact edition first
+  if (isValidIsbn(isbn)) {                                          // exact edition first
     const hit = await lookupIsbn(isbn).catch(() => null);
     const c = hit && await tryList(hit.covers || []);
     if (c) return { ...c, how: "ISBN" };
   }
-  const getJSON = url => Promise.race([fetch(url).then(r => r.ok ? r.json() : null), new Promise(r => setTimeout(() => r(null), 8000))]).catch(() => null);
-  const t = encodeURIComponent(book.title), a = encodeURIComponent((book.author || "").split(",")[0]);
+
+  // Search with the core title ("A History of India", not "A History of India: Volume 1"), and only the first author
+  const core = coreTitle(book.title) || book.title;
+  const author = (book.author || "").split(/,|&| and /)[0].trim();
+  const wantVol = volNumber(book.volume) || volNumber((String(book.title).match(VOL_RE) || [])[0]);
+  const t = encodeURIComponent(core), a = encodeURIComponent(author);
   const [ol, gb] = await Promise.all([
-    getJSON(`https://openlibrary.org/search.json?title=${t}${a ? `&author=${a}` : ""}&fields=title,author_name,cover_i&limit=15`),
-    getJSON(`https://www.googleapis.com/books/v1/volumes?q=intitle:${t}${a ? `+inauthor:${a}` : ""}&maxResults=10`),
+    getJSON(`https://openlibrary.org/search.json?title=${t}${a ? `&author=${a}` : ""}&fields=title,subtitle,author_name,cover_i&limit=20`),
+    getJSON(`https://www.googleapis.com/books/v1/volumes?q=${encodeURIComponent(`intitle:"${core}"`)}${a ? `+inauthor:${a}` : ""}&maxResults=15`),
   ]);
-  const olList = (ol?.docs || []).filter(d => d.cover_i && titleMatches(book.title, d.title) && authorMatches(book.author, d.author_name))
-    .map(d => ({ url: `https://covers.openlibrary.org/b/id/${d.cover_i}-L.jpg`, source: "Open Library" }));
-  const gbList = (gb?.items || []).map(i => i.volumeInfo).filter(v => v?.imageLinks?.thumbnail && titleMatches(book.title, v.title) && authorMatches(book.author, v.authors))
-    .map(v => ({ url: v.imageLinks.thumbnail.replace(/^http:/, "https:").replace("&edge=curl", ""), source: "Google Books" }));
-  const c = await tryList([...olList.slice(0, 4), ...gbList.slice(0, 3)]);   // Open Library covers are larger
-  return c ? { ...c, how: "title + author" } : null;
+  const cands = [
+    ...(ol?.docs || []).filter(d => d.cover_i && titleMatches(core, d.title) && authorMatches(book.author, d.author_name))
+      .map(d => ({ url: `https://covers.openlibrary.org/b/id/${d.cover_i}-L.jpg`, source: "Open Library", full: [d.title, d.subtitle].join(" ") })),
+    ...(gb?.items || []).map(i => i.volumeInfo).filter(v => v?.imageLinks?.thumbnail && titleMatches(core, v.title) && authorMatches(book.author, v.authors))
+      .map(v => ({ url: v.imageLinks.thumbnail.replace(/^http:/, "https:").replace("&edge=curl", ""), source: "Google Books", full: [v.title, v.subtitle].join(" ") })),
+  ];
+  // Multi-volume works: covers that name the same volume first; others only if none do
+  const volOf = c => volNumber((c.full.match(VOL_RE) || [])[0]);
+  const exact = wantVol ? cands.filter(c => volOf(c) === wantVol) : cands;
+  const other = wantVol ? cands.filter(c => !volOf(c)) : [];       // never use a cover that names a different volume
+  let c = await tryList(exact.slice(0, 6));
+  if (c) return { ...c, how: wantVol ? `title + author, volume ${wantVol}` : "title + author" };
+  c = await tryList(other.slice(0, 4));
+  if (c) return { ...c, how: "title + author", note: `volume ${wantVol} not confirmed` };
+  return busy ? { busy: true } : null;
 }
 
 async function renderCoversTab(pane) {
@@ -957,7 +1005,7 @@ async function renderCoversTab(pane) {
     // all books without an image (in pages of 1,000)
     let books = [];
     for (let from = 0; ; from += 1000) {
-      let q = sb.from("books").select("id,title,author,isbn").is("image_path", null).order("title").range(from, from + 999);
+      let q = sb.from("books").select("id,title,author,isbn,volume").is("image_path", null).order("title").range(from, from + 999);
       if (type) q = q.eq("book_type", type);
       const { data, error } = await q;
       if (error) { toast(friendly(error), true); return; }
@@ -969,9 +1017,9 @@ async function renderCoversTab(pane) {
     $("cvStop").hidden = false; $("cvStop").disabled = false;
     $("cvProgress").hidden = false; $("cvLog").hidden = false; $("cvLog").innerHTML = "";
     $("cvBar").max = books.length; $("cvBar").value = 0;
-    const tally = { saved: 0, linked: 0, none: 0, error: 0 };
+    const tally = { saved: 0, linked: 0, none: 0, busy: 0, error: 0 };
     const stat = () => $("cvStat").textContent =
-      `${$("cvBar").value} of ${books.length} checked: ${tally.saved + tally.linked} covers added, ${tally.none} not found${tally.error ? `, ${tally.error} errors` : ""}.`;
+      `${$("cvBar").value} of ${books.length} checked: ${tally.saved + tally.linked} covers added, ${tally.none} not found${tally.busy ? `, ${tally.busy} skipped (services busy)` : ""}${tally.error ? `, ${tally.error} errors` : ""}.`;
 
     const one = async b => {
       const row = document.createElement("li");
@@ -980,6 +1028,7 @@ async function renderCoversTab(pane) {
       const status = row.lastElementChild;
       try {
         const c = await findBestCover(b);
+        if (c?.busy) { tally.busy++; status.textContent = "Book services busy. Run again later to retry this one."; return; }
         if (!c) { tally.none++; status.innerHTML = `Not found · <a href="#edit/${esc(b.id)}">add manually</a>`; return; }
         // store it in your photo storage when the site allows downloading; otherwise link to it
         let image_path = c.url, saved = false;
@@ -994,7 +1043,7 @@ async function renderCoversTab(pane) {
         if (!data.length) { status.textContent = "Skipped: an image was added meanwhile"; if (saved) sb.storage.from(IMAGE_BUCKET).remove([image_path]); return; }
         saved ? tally.saved++ : tally.linked++;
         row.firstElementChild.outerHTML = `<img class="cvthumb" src="${esc(c.url)}" alt="">`;
-        status.innerHTML = `Added from ${esc(c.source)} (${c.how}) · <a href="#edit/${esc(b.id)}">change</a>`;
+        status.innerHTML = `Added from ${esc(c.source)} (${esc(c.how)})${c.note ? ` · <strong>${esc(c.note)}</strong>` : ""} · <a href="#edit/${esc(b.id)}">change</a>`;
       } catch (e) { tally.error++; status.textContent = "Error: " + friendly(e); }
       finally { $("cvBar").value++; stat(); }
     };
