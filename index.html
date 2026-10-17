@@ -221,6 +221,8 @@ dl.kv dt{color:var(--muted)} dl.kv dd{margin:0;word-break:break-word}
 .sgbox li{padding:.6rem .75rem;border-radius:8px;cursor:pointer;min-height:44px;display:flex;align-items:center}
 .sgbox li:hover,.sgbox li.on{background:var(--track)}
 .sgbox li b{color:var(--green)}
+.covlog{margin-top:1rem;max-height:60vh;overflow-y:auto}
+.cvthumb{width:44px;height:60px;object-fit:cover;border-radius:3px;border:1px solid var(--line);flex:none}
 .sgbox li.sgnote{color:var(--muted);font-size:.9rem;cursor:default}
 .sgbox li.sgnote:hover{background:none}
 .ver{color:var(--muted);font-size:.78rem;text-align:center;margin-top:2rem}
@@ -285,7 +287,7 @@ const USERNAME_DOMAIN   = "catalog.local";   // usernames become username@catalo
 const IMAGE_BUCKET      = "book-images";
 /* ===================================================================== */
 
-const APP_VERSION = "2026-10-17 (audiobook)";
+const APP_VERSION = "2026-10-17 (bulk covers)";
 const READ_STATUSES = ["Unread", "Reading", "Read"];
 const BOOK_TYPES    = ["Hardcover", "Paperback", "Ebook", "Audiobook", "Others"];
 // Edit this list to add genres; no database change needed
@@ -873,6 +875,140 @@ async function renderForm(editId) {
         }
       } catch (err) { errEl.textContent = friendly(err); }
     });
+  };
+}
+
+/* ---------- bulk cover finder (Setup → Covers) ---------- */
+// Loose text comparison: ignores case, accents, punctuation and bracketed notes like "(Kindle Edition)"
+const normText = s => (s || "").toLowerCase().normalize("NFKD").replace(/[\u0300-\u036f]/g, "")
+  .replace(/\(.*?\)|\[.*?\]/g, " ").replace(/[^a-z0-9]+/g, " ").trim();
+// Same book if the main titles match; a subtitle after ":" or " - " is ignored, and so is a leading "The/A/An".
+// "Harry Potter" does NOT match "Harry Potter and the Chamber of Secrets" (different book in the series).
+function titleMatches(want, got) {
+  const main = t => normText(String(t || "").split(/\s*[:;]\s*|\s+[-–—]\s+/)[0]).replace(/^(the|a|an) /, "");
+  const a = main(want), b = main(got);
+  return !!a && !!b && (a === b || normText(want).replace(/^(the|a|an) /, "") === normText(got).replace(/^(the|a|an) /, ""));
+}
+function authorMatches(want, gotList) {
+  const words = normText(want).split(" ").filter(w => w.length >= 3);
+  if (!words.length) return true;                                     // no author to check against
+  const got = normText((gotList || []).join(" "));
+  return words.some(w => got.split(" ").includes(w));                 // shares a surname / name
+}
+// Best single cover for a catalogued book. Only accepts results whose title and author match.
+async function findBestCover(book) {
+  const tryList = async list => { for (const c of list) { if (await probeImage(c.url)) return c; } return null; };
+  const isbn = cleanIsbn(book.isbn);
+  if (isValidIsbn(isbn)) {                                            // exact edition first
+    const hit = await lookupIsbn(isbn).catch(() => null);
+    const c = hit && await tryList(hit.covers || []);
+    if (c) return { ...c, how: "ISBN" };
+  }
+  const getJSON = url => Promise.race([fetch(url).then(r => r.ok ? r.json() : null), new Promise(r => setTimeout(() => r(null), 8000))]).catch(() => null);
+  const t = encodeURIComponent(book.title), a = encodeURIComponent((book.author || "").split(",")[0]);
+  const [ol, gb] = await Promise.all([
+    getJSON(`https://openlibrary.org/search.json?title=${t}${a ? `&author=${a}` : ""}&fields=title,author_name,cover_i&limit=15`),
+    getJSON(`https://www.googleapis.com/books/v1/volumes?q=intitle:${t}${a ? `+inauthor:${a}` : ""}&maxResults=10`),
+  ]);
+  const olList = (ol?.docs || []).filter(d => d.cover_i && titleMatches(book.title, d.title) && authorMatches(book.author, d.author_name))
+    .map(d => ({ url: `https://covers.openlibrary.org/b/id/${d.cover_i}-L.jpg`, source: "Open Library" }));
+  const gbList = (gb?.items || []).map(i => i.volumeInfo).filter(v => v?.imageLinks?.thumbnail && titleMatches(book.title, v.title) && authorMatches(book.author, v.authors))
+    .map(v => ({ url: v.imageLinks.thumbnail.replace(/^http:/, "https:").replace("&edge=curl", ""), source: "Google Books" }));
+  const c = await tryList([...olList.slice(0, 4), ...gbList.slice(0, 3)]);   // Open Library covers are larger
+  return c ? { ...c, how: "title + author" } : null;
+}
+
+async function renderCoversTab(pane) {
+  const countMissing = async type => {
+    let q = sb.from("books").select("id", { count: "exact", head: true }).is("image_path", null);
+    if (type) q = q.eq("book_type", type);
+    return (await q).count ?? 0;
+  };
+  const total = await countMissing("");
+  pane.innerHTML = `
+    <p class="lead">Finds a cover online for books that have no image, using the ISBN when there is one, otherwise the title and author.
+      Only covers whose title and author match are used. Books with an image are never changed.</p>
+    <div class="field"><label for="cvType">Which books</label>
+      <select id="cvType"><option value="">All books without an image (${total})</option>
+        ${BOOK_TYPES.map(t => `<option value="${t}">${t}s without an image</option>`).join("")}</select></div>
+    <div class="actions" style="margin-top:0">
+      <button class="btn" id="cvStart" ${total ? "" : "disabled"}>Find covers</button>
+      <button class="btn ghost" id="cvStop" hidden>Stop</button>
+    </div>
+    <div id="cvProgress" hidden>
+      <progress id="cvBar" value="0" max="1" style="width:100%;height:10px;margin-top:1rem"></progress>
+      <p class="stat" id="cvStat"></p>
+    </div>
+    <ul class="list covlog" id="cvLog" hidden></ul>`;
+  const $ = id => document.getElementById(id);
+  const updateCount = async () => {
+    const n = await countMissing($("cvType").value);
+    $("cvStart").disabled = !n;
+    $("cvStart").textContent = n ? `Find covers (${n})` : "Nothing to do";
+  };
+  $("cvType").onchange = () => { $("cvProgress").hidden = true; $("cvLog").hidden = true; return updateCount(); };
+  updateCount();
+
+  let stop = false;
+  $("cvStop").onclick = () => { stop = true; $("cvStop").disabled = true; $("cvStat").textContent += " Stopping after the current books…"; };
+  $("cvStart").onclick = async () => {
+    stop = false;
+    const type = $("cvType").value;
+    // all books without an image (in pages of 1,000)
+    let books = [];
+    for (let from = 0; ; from += 1000) {
+      let q = sb.from("books").select("id,title,author,isbn").is("image_path", null).order("title").range(from, from + 999);
+      if (type) q = q.eq("book_type", type);
+      const { data, error } = await q;
+      if (error) { toast(friendly(error), true); return; }
+      books = books.concat(data);
+      if (data.length < 1000) break;
+    }
+    if (!books.length) return;
+    $("cvStart").hidden = true; $("cvType").disabled = true;
+    $("cvStop").hidden = false; $("cvStop").disabled = false;
+    $("cvProgress").hidden = false; $("cvLog").hidden = false; $("cvLog").innerHTML = "";
+    $("cvBar").max = books.length; $("cvBar").value = 0;
+    const tally = { saved: 0, linked: 0, none: 0, error: 0 };
+    const stat = () => $("cvStat").textContent =
+      `${$("cvBar").value} of ${books.length} checked: ${tally.saved + tally.linked} covers added, ${tally.none} not found${tally.error ? `, ${tally.error} errors` : ""}.`;
+
+    const one = async b => {
+      const row = document.createElement("li");
+      row.innerHTML = `<span class="noimg small"></span><span class="name">${esc(b.title)}<br><span class="stat">${esc(b.author)}</span></span><span class="stat">Searching…</span>`;
+      $("cvLog").prepend(row);
+      const status = row.lastElementChild;
+      try {
+        const c = await findBestCover(b);
+        if (!c) { tally.none++; status.innerHTML = `Not found · <a href="#edit/${esc(b.id)}">add manually</a>`; return; }
+        // store it in your photo storage when the site allows downloading; otherwise link to it
+        let image_path = c.url, saved = false;
+        const blob = await downloadCover(c.url);
+        if (blob) {
+          const path = `books/${uuid()}.jpg`;
+          const up = await sb.storage.from(IMAGE_BUCKET).upload(path, await compressImage(blob), { contentType: "image/jpeg" });
+          if (!up.error) { image_path = path; saved = true; }
+        }
+        const { data, error } = await sb.from("books").update({ image_path }).eq("id", b.id).is("image_path", null).select("id");
+        if (error) throw error;
+        if (!data.length) { status.textContent = "Skipped: an image was added meanwhile"; if (saved) sb.storage.from(IMAGE_BUCKET).remove([image_path]); return; }
+        saved ? tally.saved++ : tally.linked++;
+        row.firstElementChild.outerHTML = `<img class="cvthumb" src="${esc(c.url)}" alt="">`;
+        status.innerHTML = `Added from ${esc(c.source)} (${c.how}) · <a href="#edit/${esc(b.id)}">change</a>`;
+      } catch (e) { tally.error++; status.textContent = "Error: " + friendly(e); }
+      finally { $("cvBar").value++; stat(); }
+    };
+
+    // two at a time, with a short pause, to be gentle on the free book databases
+    let next = 0;
+    const worker = async () => {
+      while (!stop && next < books.length) { await one(books[next++]); await new Promise(r => setTimeout(r, 300)); }
+    };
+    await Promise.all([worker(), worker()]);
+    stat();
+    $("cvStat").textContent += stop ? " Stopped. Run again to continue with the rest." : " Done.";
+    $("cvStop").hidden = true; $("cvStart").hidden = false; $("cvType").disabled = false;
+    updateCount();   // books still without a cover (keeps the results on screen)
   };
 }
 
@@ -1555,7 +1691,7 @@ async function renderDetail(id) {
 async function renderSetup(tab) {
   setBar({ title: "Setup", back: true });
   await loadLookups();
-  const tabs = [["rooms", "Rooms"], ["areas", "Areas"], ["owners", "Owners"]];
+  const tabs = [["rooms", "Rooms"], ["areas", "Areas"], ["owners", "Owners"], ["covers", "Covers"]];
   app.innerHTML = `
     <h2>Setup</h2>
     <div class="tabs" role="tablist">${tabs.map(([k, l]) =>
@@ -1564,6 +1700,7 @@ async function renderSetup(tab) {
   app.querySelectorAll("[data-tab]").forEach(b => b.onclick = () => history.replaceState(null, "", "#setup/" + b.dataset.tab) || renderSetup(b.dataset.tab));
   const pane = document.getElementById("pane");
   const refresh = () => renderSetup(tab);
+  if (tab === "covers") return renderCoversTab(pane);
 
   const rowActions = (table, item, extra = "") => `
     <li data-id="${esc(item.id)}">
